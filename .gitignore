@@ -32,3 +32,6 @@ supabase/.branches/
 npm-debug.log*
 .vercel
 coverage/
+
+# local sync drop (not part of the project)
+.sync/
