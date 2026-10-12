@@ -387,6 +387,10 @@ create policy highlights_update_own on public.highlights for update to authentic
 create policy highlights_delete_own on public.highlights for delete to authenticated
   using (owner_id = (select auth.uid()));
 
+-- Signed-in users reach these tables through the Data API; the RLS policies above decide which rows.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+
 -- Anonymous visitors get nothing.
 revoke all on all tables in schema public from anon;
 
