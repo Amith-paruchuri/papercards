@@ -347,3 +347,17 @@ input:focus, textarea:focus, select:focus { outline: 2px solid color-mix(in srgb
   .notes-col { padding: 14px 16px 40px; }
   .card-grid { grid-template-columns: 1fr; }
 }
+
+/* ---------- combined summary print ---------- */
+.print-brand { display: flex; align-items: center; gap: 8px; color: var(--accent); }
+@media print {
+  @page { margin: 16mm; }
+  body { background: #fff !important; }
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area-wrap { position: static !important; background: none !important; padding: 0 !important; overflow: visible !important; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100% !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; background: #fff !important; color: #000; }
+  .print-area .rich { max-height: none !important; overflow: visible !important; }
+  .no-print { display: none !important; }
+  .print-area::after { content: "Generated with PaperCards"; display: block; margin-top: 24px; font: 9px var(--font-mono); color: #999; }
+}

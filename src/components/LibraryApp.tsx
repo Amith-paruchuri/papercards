@@ -42,7 +42,8 @@ export function LibraryApp() {
   const scope = params.get("scope") || "all"; // all | unfiled | status:x | col:id | tag:id
   const view = (params.get("view") as "grid" | "list") || "grid";
   const [q, setQ] = useState("");
-  const [hits, setHits] = useState<Set<string> | null>(null);
+  const [hitState, setHitState] = useState<{ q: string; ids: Set<string> } | null>(null);
+  const hits = q.trim() && hitState?.q === q ? hitState.ids : null;
   const [sort, setSort] = useState<Sort>("updated");
   const [yearFrom, setYearFrom] = useState("");
   const [yearTo, setYearTo] = useState("");
@@ -68,32 +69,38 @@ export function LibraryApp() {
     [params, router]
   );
 
-  const load = useCallback(async () => {
-    try {
-      const [p, c, t] = await Promise.all([listLibrary(), listCollections(), listTags()]);
-      setPapers(p);
-      setCollections(c);
-      setTags(t);
-      setLoadError(null);
-    } catch (e) {
-      setLoadError(errorMessage(e));
-      setPapers([]);
-    }
+  const apply = useCallback(([p, c, t]: [LibraryPaper[], Collection[], Tag[]]) => {
+    setPapers(p);
+    setCollections(c);
+    setTags(t);
+    setLoadError(null);
   }, []);
+  const fail = useCallback((e: unknown) => {
+    setLoadError(errorMessage(e));
+    setPapers((prev) => prev ?? []);
+  }, []);
+  const load = useCallback(
+    () => Promise.all([listLibrary(), listCollections(), listTags()]).then(apply, fail),
+    [apply, fail]
+  );
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let alive = true;
+    Promise.all([listLibrary(), listCollections(), listTags()]).then(
+      (r) => alive && apply(r),
+      (e) => alive && fail(e)
+    );
+    return () => {
+      alive = false;
+    };
+  }, [apply, fail]);
 
   // Debounced full-text search on the server.
   useEffect(() => {
-    if (!q.trim()) {
-      setHits(null);
-      return;
-    }
+    if (!q.trim()) return;
     const h = setTimeout(() => {
       searchPaperIds(q)
-        .then(setHits)
+        .then((ids) => setHitState({ q, ids }))
         .catch((e) => toast(errorMessage(e), { err: true }));
     }, 220);
     return () => clearTimeout(h);
@@ -134,7 +141,7 @@ export function LibraryApp() {
     return c;
   }, [papers]);
 
-  const visible = useMemo(() => {
+  const visible = (() => {
     let list = papers ?? [];
     if (scope === "unfiled") list = list.filter((p) => !p.collection_papers.length);
     else if (scope.startsWith("status:")) list = list.filter((p) => p.status === scope.slice(7));
@@ -157,7 +164,7 @@ export function LibraryApp() {
     };
     sorted.sort(by[sort]);
     return sorted;
-  }, [papers, scope, hits, yearFrom, yearTo, studyType, pdfOnly, sort]);
+  })();
 
   const selectedPapers = useMemo(() => (papers ?? []).filter((p) => selected.has(p.id)), [papers, selected]);
   const exportSet = selectedPapers.length ? selectedPapers : visible;

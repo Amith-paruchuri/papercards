@@ -1,29 +1,31 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 const KEY = "papercards_theme";
+const EVENT = "papercards-theme";
 type Theme = "system" | "light" | "dark";
 
+function read(): Theme {
+  const t = typeof document !== "undefined" ? document.documentElement.dataset.theme : undefined;
+  return t === "light" || t === "dark" ? t : "system";
+}
+function subscribe(cb: () => void) {
+  window.addEventListener(EVENT, cb);
+  return () => window.removeEventListener(EVENT, cb);
+}
+
 export function ThemeSelect() {
-  const [theme, setTheme] = useState<Theme>("system");
-  useEffect(() => {
-    try {
-      const t = localStorage.getItem(KEY);
-      if (t === "light" || t === "dark") setTheme(t);
-    } catch {
-      // storage unavailable: stay on system theme
-    }
-  }, []);
+  const theme = useSyncExternalStore(subscribe, read, () => "system" as Theme);
   function choose(t: Theme) {
-    setTheme(t);
     try {
       if (t === "system") localStorage.removeItem(KEY);
       else localStorage.setItem(KEY, t);
     } catch {
-      // ignore
+      // storage unavailable: theme still applies for this visit
     }
     if (t === "system") delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = t;
+    window.dispatchEvent(new Event(EVENT));
   }
   const next: Record<Theme, Theme> = { system: "light", light: "dark", dark: "system" };
   const icon: Record<Theme, string> = { system: "◐", light: "☀", dark: "☾" };
