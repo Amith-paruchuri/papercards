@@ -3,6 +3,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { loadPdfJs, openPdf } from "@/lib/pdf/pdfjs";
 import type { Highlight, HighlightRect, NoteSection } from "@/lib/types";
+import { ArrowCounterClockwise, ArrowsOutLineHorizontal, Copy, MagnifyingGlassMinus, MagnifyingGlassPlus, Plus, Trash, Columns, File as FileIcon } from "@phosphor-icons/react";
 
 export interface PdfViewerHandle {
   jumpTo: (h: Highlight) => void;
@@ -285,30 +286,38 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(p
 
   return (
     <>
-      <div className="pdf-toolbar">
-        <span>
-          {current} / {sizes.length || "–"}
+      <div className="pdf-toolbar" role="toolbar" aria-label="PDF view">
+        <span className="tb-text" aria-live="polite">
+          {current} / {sizes.length || "…"}
         </span>
-        <button onClick={() => zoom(scale - 0.15)} aria-label="Zoom out">
-          −
+        <span className="tb-sep" />
+        <button className="tb-btn" onClick={() => zoom(scale - 0.15)} aria-label="Zoom out" title="Zoom out">
+          <MagnifyingGlassMinus size={17} />
         </button>
-        <span style={{ minWidth: 42, textAlign: "center" }}>{Math.round(scale * 100)}%</span>
-        <button onClick={() => zoom(scale + 0.15)} aria-label="Zoom in">
-          +
+        <span className="tb-text">{Math.round(scale * 100)}%</span>
+        <button className="tb-btn" onClick={() => zoom(scale + 0.15)} aria-label="Zoom in" title="Zoom in">
+          <MagnifyingGlassPlus size={17} />
         </button>
-        <button onClick={fitWidth}>Fit width</button>
-        <button className={spread ? "on" : ""} onClick={() => (setSpread((s) => !s), setMenu(null))} title="Two pages side by side">
-          {spread ? "▯▯ 2-page" : "▯ 1-page"}
+        <button className="tb-btn" onClick={fitWidth} title="Fit to width">
+          <ArrowsOutLineHorizontal size={17} /> <span className="desktop-only">Fit</span>
         </button>
-        <button onClick={onUndo} disabled={!canUndo} title="Undo last highlight (Ctrl/Cmd+Z)">
-          ↶ Undo
+        <button className={`tb-btn${spread ? " on" : ""}`} aria-pressed={spread} onClick={() => (setSpread((s) => !s), setMenu(null))} title={spread ? "Show one page at a time" : "Show two pages side by side"}>
+          {spread ? <Columns size={17} /> : <FileIcon size={17} />} <span className="desktop-only">{spread ? "Two pages" : "One page"}</span>
+        </button>
+        <span className="tb-sep" />
+        <button className="tb-btn" onClick={onUndo} disabled={!canUndo} title="Undo last highlight (⌘Z)">
+          <ArrowCounterClockwise size={17} /> <span className="desktop-only">Undo</span>
         </button>
         <span className="spacer" />
         {toolbarExtra}
       </div>
       <div className="pdf-stage" ref={stageRef} onMouseUp={onMouseUp}>
-        {error && <div className="notice">Could not open this PDF: {error}</div>}
-        {!error && !sizes.length && <div style={{ color: "#ddd", font: "12px var(--font-mono)" }}>Opening PDF…</div>}
+        {error && (
+          <div className="notice" role="alert">
+            <strong>This PDF won&apos;t open.</strong> {error}. Try replacing it with a fresh download.
+          </div>
+        )}
+        {!error && !sizes.length && <div className="hint">Opening PDF…</div>}
         <div className={`pdf-pages${spread ? " spread" : ""}`} ref={pagesRef}>
           {sizes.map((s, i) => {
             const pageNo = i + 1;
@@ -356,10 +365,10 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(p
         </div>
         {menu?.kind === "select" && (
           <div className="hl-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.preventDefault()}>
-            <div className="lbl">Highlight into…</div>
+            <div className="lbl">Add to your notes</div>
             {sections.map((s) => (
               <button key={s.id} onClick={() => save(s.id, s.color || DEFAULT_HL)}>
-                <span className="dot" style={{ background: s.color || DEFAULT_HL }} />
+                <span className="sw" style={{ background: s.color || DEFAULT_HL }} />
                 {s.title}
               </button>
             ))}
@@ -371,11 +380,13 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(p
                 setMenu(null);
               }}
             >
-              <span className="dot" style={{ background: "transparent", border: "1px dashed var(--ink-soft)" }} />+ New section…
+              <Plus size={12} style={{ margin: "0 0 0 0" }} />
+              New section…
             </button>
+            <hr />
             <button onClick={() => save(null, DEFAULT_HL)}>
-              <span className="dot" style={{ background: DEFAULT_HL }} />
-              Highlight only
+              <span className="sw" style={{ background: DEFAULT_HL, opacity: 0.6 }} />
+              Highlight without a note
             </button>
             <button
               onClick={() => {
@@ -383,29 +394,29 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(p
                 setMenu(null);
               }}
             >
-              ⧉ Copy text
+              <Copy size={14} /> Copy text
             </button>
           </div>
         )}
         {menu?.kind === "existing" && (
           <div className="hl-menu" style={{ left: menu.x, top: menu.y }}>
-            <div className="lbl">p. {menu.h.page} highlight</div>
+            <div className="lbl">Highlight on page {menu.h.page}</div>
             <button
               onClick={() => {
                 void navigator.clipboard?.writeText(menu.h.text);
                 setMenu(null);
               }}
             >
-              ⧉ Copy text
+              <Copy size={14} /> Copy text
             </button>
             <button
               onClick={() => {
                 onDeleteHighlight(menu.h);
                 setMenu(null);
               }}
-              style={{ color: "var(--danger)" }}
+              style={{ color: "var(--seal)" }}
             >
-              ✕ Remove highlight
+              <Trash size={14} /> Remove highlight
             </button>
             <button onClick={() => setMenu(null)}>Close</button>
           </div>

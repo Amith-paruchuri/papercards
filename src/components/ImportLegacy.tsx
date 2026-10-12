@@ -2,6 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Brand } from "./Logo";
+import { ArrowLeft, FileArrowUp } from "@phosphor-icons/react";
 import { errorMessage } from "./Toast";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import {
@@ -122,16 +123,16 @@ export function ImportLegacy() {
         <Brand />
         <span className="spacer" />
         <Link className="btn ghost small" href="/">
-          ← Library
+          <ArrowLeft size={14} /> Back to library
         </Link>
       </header>
-      <main className="page-narrow">
+      <main className="page-narrow" id="main">
         <h1>Import from the old Paper Cards</h1>
-        <p className="hint" style={{ fontSize: 14 }}>
+        <p className="hint" style={{ fontSize: 15, marginBottom: 20 }}>
           Your old cards live in the browser where you used the single-file version. This brings across titles, notes, highlights, labels, decks and
-          stored PDFs. Running it twice is safe; already-imported cards are skipped.
+          stored PDFs. Running it twice is safe: cards you already imported are skipped.
         </p>
-        <ol style={{ lineHeight: 1.7, paddingLeft: 20 }}>
+        <ol className="steps">
           <li>Open the old <code>paper-cards-research.html</code> in the browser you used it in.</li>
           <li>
             Open the browser console (Chrome/Edge: <code>⌥⌘J</code> on Mac, <code>Ctrl+Shift+J</code> on Windows; Safari: <code>⌥⌘C</code>), paste this and press Enter.
@@ -147,13 +148,14 @@ export function ImportLegacy() {
                 setCopied(true);
               }}
             >
-              {copied ? "Copied" : "Copy snippet"}
+              {copied ? "Copied" : "Copy the snippet"}
             </button>
           </li>
           <li>Choose that file here:</li>
         </ol>
         <label className="dropzone">
           <input type="file" accept="application/json,.json" disabled={busy} onChange={(e) => void run(e.target.files?.[0])} />
+          <FileArrowUp size={28} weight="light" aria-hidden="true" />
           {busy ? "Importing…" : <strong>Choose papercards-legacy.json</strong>}
         </label>
         {progress && (

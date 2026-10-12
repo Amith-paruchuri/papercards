@@ -1,12 +1,14 @@
 "use client";
 // Lazy-load pdf.js in the browser only. The worker is served from /public (copied by scripts/copy-pdf-worker.mjs).
+// We use the *legacy* build: the modern build relies on brand-new JS (Map#getOrInsertComputed) that
+// current Safari/Chrome releases don't all ship yet, which made PDFs fail to open.
 type PdfJs = typeof import("pdfjs-dist");
 
 let loading: Promise<PdfJs> | null = null;
 
 export function loadPdfJs(): Promise<PdfJs> {
   if (!loading) {
-    loading = import("pdfjs-dist").then((pdfjs) => {
+    loading = (import("pdfjs-dist/legacy/build/pdf.mjs") as Promise<PdfJs>).then((pdfjs) => {
       pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
       return pdfjs;
     });

@@ -49,6 +49,7 @@ export interface Paper extends PaperMeta {
 export interface LibraryPaper extends Paper {
   paper_tags: { tag_id: string }[];
   collection_papers: { collection_id: string }[];
+  note_sections?: { id: string; color: string | null; position: number; has_notes: boolean }[];
 }
 
 export interface Collection {

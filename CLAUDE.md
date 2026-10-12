@@ -2,7 +2,7 @@
 
 > Your research brain. A reference and PDF manager for postdocs and senior researchers (a Zotero alternative), built around cards (papers) and decks (collections).
 
-This file is the source of truth for this project. Read it before every task. Also read `AGENTS.md` (Next.js 16 notes).
+This file is the source of truth for this project. Read it before every task. Also read `AGENTS.md` (Next.js 16 notes) and, for any UI work, `DESIGN.md` (the visual system).
 
 ---
 
@@ -37,10 +37,11 @@ PaperCards is a completely separate product from **Choti Copy** and **BAALANCE**
 - **Framework:** Next.js 16 (App Router, Turbopack) + TypeScript + React 19. Middleware is called **`src/proxy.ts`** in Next 16.
 - **Backend:** Supabase (Postgres, Auth, Storage), PaperCards' own project only
 - **Supabase client:** `@supabase/ssr` (`src/lib/supabase/client.ts` browser, `server.ts` server)
-- **PDF:** `pdfjs-dist` v6 (worker copied to `public/pdf.worker.min.mjs` by `scripts/copy-pdf-worker.mjs`)
-- **Fonts:** self-hosted via `@fontsource` (no Google Fonts requests)
-- **Styling:** plain CSS in `src/app/globals.css` (legacy paper/ink identity, light/dark)
-- **Tests:** `node --test` (pure libs in `tests/`), SQL RLS tests in `supabase/tests/`
+- **PDF:** `pdfjs-dist` v6 **legacy build** (`pdfjs-dist/legacy/build/pdf.mjs`; worker copied to `public/pdf.worker.min.mjs` by `scripts/copy-pdf-worker.mjs`). Do not switch to the modern build: it needs `Map#getOrInsertComputed`, which current Safari/Chrome releases lack, and PDFs stop opening.
+- **Fonts:** Geist (UI), Newsreader (titles), JetBrains Mono (DOIs), self-hosted via `@fontsource-variable` (no Google Fonts requests)
+- **Icons:** `@phosphor-icons/react` only
+- **Styling:** plain CSS with tokens in `src/app/globals.css`; design rules in `DESIGN.md` ("Washi & Ai")
+- **Tests:** `node --test` (pure libs in `tests/`), SQL RLS tests in `supabase/tests/`, UI checks via the mock backend in `tests/e2e/`
 - **Dev server port: 3002** (`npm run dev` → `next dev -p 3002`). Do not use 3000/3001.
 
 ## 2. Setup and deploy runbook (for Claude Code on the user's Mac)
@@ -56,6 +57,16 @@ Run these in order. Steps 3 and 5 touch the user's Supabase/Vercel accounts and 
 4. **Auth URLs:** Supabase → Authentication → URL Configuration: Site URL `http://localhost:3002`; Redirect URLs `http://localhost:3002/**` (add the Vercel URL `https://<app>.vercel.app/**` after step 6).
 5. `npm run dev` → open http://localhost:3002 → sign in with an email magic link → add a paper by DOI and by PDF → highlight → export BibTeX.
 6. **Deploy to Vercel:** `npx vercel login`, `npx vercel link` (new project named `papercards`, never reuse another product's project), add env vars `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` for Production and Preview (`npx vercel env add …`, values piped from `.env.local`, never echoed), then `npx vercel --prod`. Add the production URL to Supabase redirect URLs (step 4) and set Site URL to it.
+
+### Design tooling (install once in Claude Code on the Mac)
+Third-party skills the user picked for frontend quality. Review each SKILL.md after installing; they are guidance, and `DESIGN.md` wins where they disagree.
+- `npx skills add Leonxlnx/taste-skill` (anti-generic design rules; we follow its bans, not its landing-page layouts)
+- `npx skills add vercel-labs/agent-skills --skill web-design-guidelines` (audit UI against Vercel's Web Interface Guidelines)
+- `npx getdesign@latest add notion` and `npx getdesign@latest add linear.app` (reference DESIGN.md files; save them under `docs/design-refs/`, never over our `DESIGN.md`)
+- Playwright is used for screenshots: `npx playwright install chromium` once.
+
+### Local UI testing without Supabase
+`node tests/e2e/mock-supabase.mjs 54321` starts an in-memory stand-in for Supabase (auth, the PostgREST subset we use, storage) seeded with a demo library. Point a scratch `.env.local` at `http://localhost:54321` with any anon key, run `npm run dev`, and sign in by setting the `sb-localhost-auth-token` cookie (see the mock's `sessionFor`). `MOCK_EMPTY=1` gives an empty library; `MOCK_PDF=/path/file.pdf` attaches a PDF to the first card. Never use the mock for anything but local testing.
 
 ## 3. Architecture
 
@@ -109,6 +120,9 @@ RLS: every table `owner_id = auth.uid()` for select/insert/update/delete; join t
 | Full-text search (title, authors, abstract, journal, DOI, subjects) with prefix matching | Done |
 | To-read queue with priority sort | Done |
 | Add by DOI (Crossref/DataCite), by PDF (auto DOI detection, batch drop), manual | Done |
+| Command menu (⌘K): jump to any paper or collection, run actions | Done |
+| First-run onboarding with drop zone and sample papers | Done |
+| Redesign: "Washi & Ai" system, folded-card status, note-coverage strip, dark mode, mobile | Done |
 | Legacy prototype import | Done |
 | Sharing cards/decks, shared lab decks | Next |
 | Label graph (Obsidian-style) | Next |
@@ -124,7 +138,7 @@ RLS: every table `owner_id = auth.uid()` for select/insert/update/delete; join t
 6. PWA install + offline cache; then Tauri desktop.
 
 ### Visual identity
-Paper/ink palette, Source Serif 4 + IBM Plex Mono + Inter, light/dark themes, section colors (Intro blue `#5ec4ee`, Methods green `#7ed67e`, Results yellow `#f0c463`, Discussion pink `#f0879b`), origami mark.
+See `DESIGN.md`. In short: washi surfaces, sumi ink, indigo accent, vermilion seal; the folded index card is the signature element; section colours Intro `#5ec4ee`, Methods `#7ed67e`, Results `#f0c463`, Discussion `#f0879b`.
 
 ## 6. Legacy prototype
 

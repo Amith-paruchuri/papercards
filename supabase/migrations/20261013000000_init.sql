@@ -193,6 +193,7 @@ create table public.note_sections (
   color text,
   position integer not null default 0,
   content_html text not null default '',
+  has_notes boolean generated always as (content_html <> '' and content_html !~ '^\s*(<br\s*/?>\s*)*$') stored,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

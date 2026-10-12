@@ -54,7 +54,7 @@ export async function signOut() {
 export async function listLibrary(): Promise<LibraryPaper[]> {
   const { data, error } = await db()
     .from("papers")
-    .select(`${PAPER_COLUMNS}, paper_tags(tag_id), collection_papers(collection_id)`)
+    .select(`${PAPER_COLUMNS}, paper_tags(tag_id), collection_papers(collection_id), note_sections(id, color, position, has_notes)`)
     .order("updated_at", { ascending: false });
   fail(error, "Loading library");
   return (data ?? []) as unknown as LibraryPaper[];

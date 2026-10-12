@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { EnvelopeSimple, CircleNotch } from "@phosphor-icons/react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
 export function LoginForm({ next, initialError }: { next?: string; initialError?: string }) {
@@ -18,7 +19,7 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
       options: { emailRedirectTo: redirect.toString(), shouldCreateUser: true },
     });
     if (error) {
-      setError(error.message);
+      setError(`${error.message} Check the address and try again.`);
       setState("idle");
     } else {
       setState("sent");
@@ -27,9 +28,10 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
 
   if (state === "sent") {
     return (
-      <div className="notice">
-        Check <strong>{email}</strong> for a sign-in link. Open it in this browser to continue.
-        <div style={{ marginTop: 8 }}>
+      <div className="notice" role="status">
+        <EnvelopeSimple size={22} style={{ display: "block", marginBottom: 6 }} />
+        <strong>Check your inbox.</strong> We sent a sign-in link to {email}. Open it in this browser to continue.
+        <div style={{ marginTop: 10 }}>
           <button className="btn ghost small" onClick={() => setState("idle")}>
             Use a different email
           </button>
@@ -39,17 +41,37 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
   }
 
   return (
-    <form onSubmit={submit}>
+    <form onSubmit={submit} noValidate={false}>
       <label className="field-label" htmlFor="email">
-        Email
+        Work or university email
       </label>
-      <input id="email" type="email" required autoComplete="email" placeholder="you@institute.edu" value={email} onChange={(e) => setEmail(e.target.value)} />
-      <button className="btn" style={{ width: "100%", justifyContent: "center", marginTop: 12 }} disabled={state === "sending"}>
-        {state === "sending" ? "Sending link…" : "Email me a sign-in link"}
+      <input
+        id="email"
+        name="email"
+        type="email"
+        required
+        autoComplete="email"
+        spellCheck={false}
+        placeholder="you@institute.edu…"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+      />
+      <button className="btn" disabled={state === "sending"}>
+        {state === "sending" ? (
+          <>
+            <CircleNotch size={16} className="spin" /> Sending link…
+          </>
+        ) : (
+          "Email me a sign-in link"
+        )}
       </button>
-      {error && <div className="error-text">{error}</div>}
-      <p className="hint" style={{ marginTop: 12, marginBottom: 0 }}>
-        No password needed. New here? The same link creates your account.
+      {error && (
+        <div className="error-text" role="alert">
+          {error}
+        </div>
+      )}
+      <p className="hint" style={{ marginTop: 14 }}>
+        New here? The same link creates your account.
       </p>
     </form>
   );

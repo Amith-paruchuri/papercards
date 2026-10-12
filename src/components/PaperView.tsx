@@ -8,6 +8,26 @@ import { errorMessage, useToast } from "./Toast";
 import { ThemeSelect } from "./ThemeSelect";
 import { OrigamiMark } from "./Logo";
 import {
+  ArrowLeft,
+  CaretDown,
+  Check,
+  CircleNotch,
+  Copy,
+  CornersIn,
+  CornersOut,
+  DownloadSimple,
+  FileArrowUp,
+  FilePdf,
+  FolderSimple,
+  Info,
+  Plus,
+  Printer,
+  Quotes,
+  Trash,
+  UploadSimple,
+  X,
+} from "@phosphor-icons/react";
+import {
   addPapersToCollection,
   addTagToPapers,
   createHighlight,
@@ -391,15 +411,20 @@ export function PaperView({ id }: { id: string }) {
   const paperTags = useMemo(() => tags.filter((t) => paperTagIds.includes(t.id)), [tags, paperTagIds]);
 
   if (paper === undefined) {
-    return <div className="empty">Loading…</div>;
+    return (
+      <div className="empty" aria-busy="true">
+        <CircleNotch size={22} className="spin" /> <div>Opening your card…</div>
+      </div>
+    );
   }
   if (paper === null) {
     return (
       <div className="empty">
-        This card doesn&apos;t exist or isn&apos;t yours.
+        <h2>Card not found</h2>
+        It may have been deleted, or it belongs to another account.
         <div>
           <Link className="btn" href="/">
-            Back to library
+            Back to your library
           </Link>
         </div>
       </div>
@@ -413,48 +438,59 @@ export function PaperView({ id }: { id: string }) {
     <div>
       <header className="paper-head">
         <div className="crumbs">
-          <Link href="/" aria-label="Back to library" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <OrigamiMark size={18} /> Library
+          <Link href="/" aria-label="Back to library">
+            <ArrowLeft size={16} /> <OrigamiMark size={20} /> <span className="desktop-only">Library</span>
           </Link>
-          <span>/</span>
-          <span>{citationLabel(paper) || "Untitled"}</span>
           <span className="spacer" />
-          <span className="saving">{saving === "saving" ? "Saving…" : saving === "saved" ? "All changes saved" : ""}</span>
+          <span className="saving" aria-live="polite">
+            {saving === "saving" ? (
+              <>
+                <CircleNotch size={13} className="spin" /> Saving…
+              </>
+            ) : saving === "saved" ? (
+              <>
+                <Check size={13} /> Saved
+              </>
+            ) : null}
+          </span>
+          <button className="btn quiet small desktop-only" onClick={() => window.dispatchEvent(new Event("papercards:palette"))} aria-label="Open command menu">
+            <kbd>⌘&nbsp;K</kbd>
+          </button>
           <ThemeSelect />
           <div className="menu-wrap">
             <button className="btn ghost small" onClick={() => setMenu((m) => !m)} aria-haspopup="menu" aria-expanded={menu}>
-              ⇩ Export
+              <Quotes size={15} /> Cite and export <CaretDown size={12} />
             </button>
             {menu && (
               <div className="menu" role="menu" onMouseLeave={() => setMenu(false)}>
-                <button role="menuitem" onClick={() => (downloadText(`${fileBase}.bib`, toBibTeX(citable) + "\n"), setMenu(false))}>
-                  BibTeX (.bib)
-                </button>
-                <button role="menuitem" onClick={() => (downloadText(`${fileBase}.ris`, toRIS(citable) + "\r\n"), setMenu(false))}>
-                  RIS (.ris)
-                </button>
                 <button
                   role="menuitem"
                   onClick={() => {
                     void navigator.clipboard?.writeText(toBibTeX(citable));
-                    toast("BibTeX copied.");
+                    toast("BibTeX copied to clipboard.");
                     setMenu(false);
                   }}
                 >
-                  Copy BibTeX
+                  <Copy size={16} /> Copy BibTeX
+                </button>
+                <button role="menuitem" onClick={() => (downloadText(`${fileBase}.bib`, toBibTeX(citable) + "\n"), setMenu(false))}>
+                  <DownloadSimple size={16} /> Download BibTeX
+                </button>
+                <button role="menuitem" onClick={() => (downloadText(`${fileBase}.ris`, toRIS(citable) + "\r\n"), setMenu(false))}>
+                  <DownloadSimple size={16} /> Download RIS
                 </button>
                 <hr />
                 <button role="menuitem" onClick={() => (setMerged(true), setMenu(false))}>
-                  Combined summary / print to PDF
+                  <Printer size={16} /> One-page summary
                 </button>
                 {pdfData && (
                   <button role="menuitem" onClick={() => (downloadOriginal(), setMenu(false))}>
-                    Download PDF
+                    <FilePdf size={16} /> Download the PDF
                   </button>
                 )}
                 <hr />
-                <button role="menuitem" onClick={onDeletePaper} style={{ color: "var(--danger)" }}>
-                  Delete card
+                <button role="menuitem" onClick={onDeletePaper} style={{ color: "var(--seal)" }}>
+                  <Trash size={16} /> Delete card
                 </button>
               </div>
             )}
@@ -465,6 +501,7 @@ export function PaperView({ id }: { id: string }) {
           contentEditable
           suppressContentEditableWarning
           spellCheck={false}
+          aria-label="Paper title, editable"
           onBlur={(e) => {
             const t = e.currentTarget.textContent?.trim() || "Untitled";
             if (t !== paper.title) void patchPaper({ title: t });
@@ -474,41 +511,64 @@ export function PaperView({ id }: { id: string }) {
           {paper.title}
         </h1>
         <div className="paper-sub">
-          <span>{formatAuthorsFull(paper.authors) || "No authors yet"}</span>
-          {paper.year && <span>{paper.year}</span>}
-          {paper.journal && <span>{paper.journal}</span>}
+          <span>
+            {formatAuthorsFull(paper.authors) || "No authors yet"}
+            {paper.year ? ` (${paper.year})` : ""}
+          </span>
+          {paper.journal && <em>{paper.journal}</em>}
           {paper.doi && (
-            <a href={`https://doi.org/${paper.doi}`} target="_blank" rel="noreferrer">
-              doi:{paper.doi}
+            <a href={`https://doi.org/${paper.doi}`} target="_blank" rel="noreferrer" translate="no">
+              {paper.doi}
             </a>
           )}
         </div>
         <div className="paper-controls">
-          <select value={paper.status} onChange={(e) => void patchPaper({ status: e.target.value as PaperStatus })} aria-label="Reading status">
-            {Object.entries(STATUS_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
+          <span className="status-pill">
+            <span className="status-swatch" style={{ background: `var(--st-${paper.status})` }} />
+            <select className="status-select" value={paper.status} onChange={(e) => void patchPaper({ status: e.target.value as PaperStatus })} aria-label="Reading status">
+              {Object.entries(STATUS_LABELS).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </span>
           <select value={paper.priority} onChange={(e) => void patchPaper({ priority: Number(e.target.value) })} aria-label="Priority">
             <option value={0}>No priority</option>
-            <option value={1}>★ Low</option>
-            <option value={2}>★★ Medium</option>
-            <option value={3}>★★★ High</option>
+            <option value={1}>Low priority</option>
+            <option value={2}>Medium priority</option>
+            <option value={3}>High priority</option>
           </select>
+          <details className="menu-wrap" style={{ display: "inline-block" }}>
+            <summary className="btn ghost small" style={{ listStyle: "none", borderRadius: 999 }}>
+              <FolderSimple size={15} />
+              {paperCollectionIds.length ? `In ${paperCollectionIds.length} ${paperCollectionIds.length > 1 ? "collections" : "collection"}` : "Add to collection"}
+            </summary>
+            <div className="menu" style={{ left: 0, right: "auto" }}>
+              {collections.length === 0 && <div className="menu-note">Create a collection from the library sidebar first.</div>}
+              {collections.map((c) => (
+                <label key={c.id} className="menu-check">
+                  <input type="checkbox" checked={paperCollectionIds.includes(c.id)} onChange={(e) => void toggleCollection(c.id, e.target.checked)} />
+                  {c.name}
+                </label>
+              ))}
+            </div>
+          </details>
           {paperTags.map((t) => (
             <span key={t.id} className="tag">
-              #{t.name}
+              {t.name}
               <button className="x" aria-label={`Remove tag ${t.name}`} onClick={() => void removeTag(t.id)}>
-                ×
+                <X size={11} />
               </button>
             </span>
           ))}
           <input
+            type="text"
             className="tag-input"
             list="tag-suggestions"
-            placeholder="+ tag"
+            name="tag"
+            autoComplete="off"
+            placeholder="Add tag…"
             value={tagInput}
             onChange={(e) => setTagInput(e.target.value)}
             onKeyDown={(e) => {
@@ -517,35 +577,26 @@ export function PaperView({ id }: { id: string }) {
                 void addTag(tagInput);
               }
             }}
-            aria-label="Add tag"
+            aria-label="Add a tag"
           />
           <datalist id="tag-suggestions">
             {tags.filter((t) => !paperTagIds.includes(t.id)).map((t) => (
               <option key={t.id} value={t.name} />
             ))}
           </datalist>
-          <details className="menu-wrap" style={{ display: "inline-block" }}>
-            <summary className="btn ghost small" style={{ listStyle: "none" }}>
-              ▤ {paperCollectionIds.length ? `${paperCollectionIds.length} collection${paperCollectionIds.length > 1 ? "s" : ""}` : "Add to collection"}
-            </summary>
-            <div className="menu" style={{ left: 0, right: "auto" }}>
-              {collections.length === 0 && <div className="hint" style={{ padding: 8 }}>Create collections from the library sidebar.</div>}
-              {collections.map((c) => (
-                <label key={c.id} style={{ display: "flex", gap: 8, padding: "6px 10px", cursor: "pointer", fontSize: 13 }}>
-                  <input type="checkbox" checked={paperCollectionIds.includes(c.id)} onChange={(e) => void toggleCollection(c.id, e.target.checked)} />
-                  {c.name}
-                </label>
-              ))}
-            </div>
-          </details>
         </div>
       </header>
 
       <div className={`paper-body${paper.pdf_path ? "" : " no-pdf"}`}>
-        <div className="notes-col">
+        <div className="notes-col" id="main">
           <details className="meta-panel">
-            <summary>Details & bibliography</summary>
-            <MetaForm paper={paper} onSave={(patch) => void patchPaper(patch)} onRefreshDoi={refreshFromDoi} />
+            <summary>
+              <Info size={16} /> Citation details, study type and abstract
+              <CaretDown size={14} className="chev" />
+            </summary>
+            <div className="meta-body">
+              <MetaForm paper={paper} onSave={(patch) => void patchPaper(patch)} onRefreshDoi={refreshFromDoi} />
+            </div>
           </details>
           {sections.map((s, i) => (
             <SectionEditor
@@ -562,12 +613,12 @@ export function PaperView({ id }: { id: string }) {
               isLast={i === sections.length - 1}
             />
           ))}
-          <button className="btn ghost small" onClick={() => void addSection()}>
-            + Add section
+          <button className="add-section" onClick={() => void addSection()}>
+            <Plus size={14} /> Add a section
           </button>
         </div>
 
-        <div className="pdf-col" style={fullPdf ? { position: "fixed", inset: 0, zIndex: 50, height: "100vh" } : undefined}>
+        <div className={`pdf-col${fullPdf ? " full" : ""}`}>
           {paper.pdf_path ? (
             pdfData ? (
               <PdfViewer
@@ -582,21 +633,29 @@ export function PaperView({ id }: { id: string }) {
                 canUndo={undoStack.length > 0}
                 toolbarExtra={
                   <>
-                    <button onClick={() => setFullPdf((f) => !f)} className={fullPdf ? "on" : ""}>
-                      {fullPdf ? "✕ Exit full screen" : "⤢ Full screen"}
+                    <button className={`tb-btn${fullPdf ? " on" : ""}`} onClick={() => setFullPdf((f) => !f)} title={fullPdf ? "Exit full screen (Esc)" : "Read full screen"} aria-label={fullPdf ? "Exit full screen" : "Read full screen"}>
+                      {fullPdf ? <CornersIn size={17} /> : <CornersOut size={17} />}
                     </button>
-                    <label className="btn ghost small" style={{ cursor: "pointer" }} title="Replace PDF">
-                      Replace
+                    <label className="tb-btn" title="Replace the PDF" style={{ cursor: "pointer" }}>
+                      <UploadSimple size={17} /> <span className="desktop-only">Replace</span>
                       <input type="file" accept="application/pdf,.pdf" hidden onChange={(e) => void attachPdf(e.target.files?.[0])} />
                     </label>
-                    <button onClick={detachPdf} title="Remove PDF">
-                      Remove
+                    <button className="tb-btn" onClick={detachPdf} title="Remove the PDF" aria-label="Remove the PDF">
+                      <Trash size={17} />
                     </button>
                   </>
                 }
               />
             ) : (
-              <div className="pdf-empty">{pdfLoading ? "Loading PDF…" : "PDF unavailable."}</div>
+              <div className="pdf-empty">
+                {pdfLoading ? (
+                  <span className="hint">
+                    <CircleNotch size={16} className="spin" /> Loading PDF…
+                  </span>
+                ) : (
+                  "The PDF couldn't be loaded. Reload the page to try again."
+                )}
+              </div>
             )
           ) : (
             <div className="pdf-empty">
@@ -610,13 +669,14 @@ export function PaperView({ id }: { id: string }) {
               >
                 <input type="file" accept="application/pdf,.pdf" onChange={(e) => void attachPdf(e.target.files?.[0])} />
                 {pdfLoading ? (
-                  "Uploading…"
+                  <span className="hint">
+                    <CircleNotch size={16} className="spin" /> Uploading…
+                  </span>
                 ) : (
                   <>
+                    <FileArrowUp size={32} weight="light" aria-hidden="true" />
                     <strong>Attach the PDF</strong>
-                    <div className="hint" style={{ marginTop: 6 }}>
-                      Drop it here or click to choose. Then select text to highlight it into your notes.
-                    </div>
+                    <span className="hint">Drop it here or choose a file. Then select any passage to add it to your notes.</span>
                   </>
                 )}
               </label>
@@ -682,8 +742,8 @@ function MetaForm({ paper, onSave, onRefreshDoi }: { paper: Paper; onSave: (patc
             if (d !== paper.doi) onSave({ doi: d });
           }}
         />
-        <button className="btn ghost small" onClick={onRefreshDoi} title="Fill title, authors, journal and abstract from the DOI">
-          ↻ Fill from DOI
+        <button className="btn ghost" onClick={onRefreshDoi} title="Fill in title, authors, journal and abstract from the DOI">
+          Fill in from DOI
         </button>
       </div>
       {field("url", "URL", { placeholder: "https://…" })}
@@ -701,7 +761,7 @@ function MetaForm({ paper, onSave, onRefreshDoi }: { paper: Paper; onSave: (patc
         </div>
         {field("site", "Study site / country")}
       </div>
-      <label className="field-label">Subjects (comma separated)</label>
+      <label className="field-label">Subjects, separated by commas</label>
       <input
         type="text"
         defaultValue={paper.subjects.join(", ")}
@@ -726,8 +786,8 @@ function MetaForm({ paper, onSave, onRefreshDoi }: { paper: Paper; onSave: (patc
 function MergedView({ paper, sections, tags, onClose }: { paper: Paper; sections: NoteSection[]; tags: Tag[]; onClose: () => void }) {
   const plain = [
     paper.title,
-    [formatAuthorsFull(paper.authors, 999), paper.year, paper.journal].filter(Boolean).join(" · "),
-    paper.doi ? `doi:${paper.doi}` : "",
+    [formatAuthorsFull(paper.authors, 999), paper.year ? `(${paper.year})` : "", paper.journal].filter(Boolean).join(" "),
+    paper.doi ? `https://doi.org/${paper.doi}` : "",
     "",
     ...sections.flatMap((s) => [s.title.toUpperCase(), htmlToText(s.content_html) || "(empty)", ""]),
   ].join("\n");
@@ -735,37 +795,39 @@ function MergedView({ paper, sections, tags, onClose }: { paper: Paper; sections
     <div className="modal-backdrop print-area-wrap" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal print-area" style={{ width: "min(820px, 100%)" }} role="dialog" aria-modal="true">
         <div className="row no-print" style={{ marginBottom: 10 }}>
-          <span className="hint grow">Combined summary</span>
+          <span className="hint grow">One-page summary</span>
           <button className="btn ghost small" onClick={() => void navigator.clipboard?.writeText(plain)}>
-            Copy text
+            <Copy size={14} /> Copy as text
           </button>
           <button className="btn small" onClick={() => window.print()}>
-            Print / Save as PDF
+            <Printer size={14} /> Print or save as PDF
           </button>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">
-            ✕
+          <button className="icon-btn" onClick={onClose} aria-label="Close summary">
+            <X size={16} />
           </button>
         </div>
         <div className="print-brand">
-          <OrigamiMark size={20} /> <span className="mono" style={{ fontSize: 10, letterSpacing: "0.08em" }}>PAPERCARDS · RESEARCH SUMMARY</span>
+          <OrigamiMark size={20} /> <span>PaperCards summary</span>
         </div>
-        <h2 style={{ font: "700 22px/1.3 var(--font-serif)", margin: "10px 0 4px" }}>{paper.title}</h2>
-        <div className="mono hint">
-          {[formatAuthorsFull(paper.authors, 12), paper.year, paper.journal].filter(Boolean).join(" · ")}
-          {paper.doi ? ` · doi:${paper.doi}` : ""}
+        <h2 style={{ font: "500 28px/1.2 var(--font-serif)", margin: "12px 0 6px", letterSpacing: "-0.01em" }}>{paper.title}</h2>
+        <div className="hint" style={{ fontSize: 14 }}>
+          {formatAuthorsFull(paper.authors, 12)}
+          {paper.year ? ` (${paper.year}). ` : ". "}
+          {paper.journal && <em className="serif">{paper.journal}. </em>}
+          {paper.doi && <span className="mono">doi.org/{paper.doi}</span>}
         </div>
         {tags.length > 0 && (
           <div style={{ marginTop: 6 }}>
             {tags.map((t) => (
               <span key={t.id} className="tag" style={{ marginRight: 4 }}>
-                #{t.name}
+                {t.name}
               </span>
             ))}
           </div>
         )}
         {sections.map((s) => (
           <section key={s.id} style={{ marginTop: 18 }}>
-            <h3 style={{ font: "600 12px var(--font-mono)", letterSpacing: "0.07em", textTransform: "uppercase", color: s.color || "var(--accent)", margin: "0 0 6px", borderBottom: "1px solid var(--rule)", paddingBottom: 4 }}>
+            <h3 style={{ font: "600 15px/1.3 var(--font-ui)", margin: "0 0 6px", paddingLeft: 10, borderLeft: `3px solid ${s.color || "var(--accent)"}` }}>
               {s.title}
             </h3>
             {htmlToText(s.content_html) ? (

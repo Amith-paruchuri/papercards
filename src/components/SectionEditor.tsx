@@ -2,6 +2,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { imageFileToDataUrl, sanitizeHtml } from "@/lib/sanitize";
 import type { NoteSection } from "@/lib/types";
+import { ArrowDown, ArrowUp, ImageSquare, ListBullets, ListNumbers, TextB, TextH, TextItalic, TextUnderline, Trash } from "@phosphor-icons/react";
 
 const PALETTE = ["#5ec4ee", "#7ed67e", "#f0c463", "#f0879b", "#b59cf0", "#f5a25d", "#9aa3ad"];
 
@@ -27,7 +28,17 @@ export const SectionEditor = memo(function SectionEditor(p: Props) {
 
   // Load content on mount and whenever the parent pushes an external change; never while the user types.
   useEffect(() => {
-    if (ref.current) ref.current.innerHTML = sanitizeHtml(section.content_html);
+    const el = ref.current;
+    if (!el) return;
+    el.innerHTML = sanitizeHtml(section.content_html);
+    // A highlight just landed here: let the newest bullet ink in so you can see where it went.
+    if (p.externalVersion > 0) {
+      const last = el.querySelector("li[data-hl]:last-of-type");
+      if (last) {
+        last.classList.add("just-added");
+        setTimeout(() => last.classList.remove("just-added"), 1700);
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section.id, p.externalVersion]);
 
@@ -53,11 +64,11 @@ export const SectionEditor = memo(function SectionEditor(p: Props) {
   }
 
   return (
-    <div className="section-box">
+    <div className="section-box" style={{ "--sec": section.color || "var(--line-strong)" } as React.CSSProperties}>
       <div className="section-head">
         <button
           className="swatch"
-          style={{ background: section.color || "var(--rule)" }}
+          style={{ background: section.color || "var(--line-strong)" }}
           title="Change colour"
           aria-label={`Change colour of ${section.title}`}
           onClick={() => {
@@ -66,45 +77,48 @@ export const SectionEditor = memo(function SectionEditor(p: Props) {
           }}
         />
         <input
+          type="text"
           className="section-title"
           value={title}
           aria-label="Section name"
+          name="section-title"
+          autoComplete="off"
           onChange={(e) => setTitle(e.target.value)}
           onBlur={() => title.trim() && title.trim() !== section.title && p.onRename(section.id, title.trim())}
           onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
         />
-        <button className="icon-btn" title="Move up" aria-label="Move section up" disabled={p.isFirst} onClick={() => p.onMove(section.id, -1)}>
-          ↑
+        <button className="icon-btn sm" title="Move up" aria-label={`Move ${section.title} up`} disabled={p.isFirst} onClick={() => p.onMove(section.id, -1)}>
+          <ArrowUp size={14} />
         </button>
-        <button className="icon-btn" title="Move down" aria-label="Move section down" disabled={p.isLast} onClick={() => p.onMove(section.id, 1)}>
-          ↓
+        <button className="icon-btn sm" title="Move down" aria-label={`Move ${section.title} down`} disabled={p.isLast} onClick={() => p.onMove(section.id, 1)}>
+          <ArrowDown size={14} />
         </button>
-        <button className="icon-btn" title="Delete section" aria-label={`Delete section ${section.title}`} onClick={() => p.onDelete(section)}>
-          ×
+        <button className="icon-btn sm" title="Delete section" aria-label={`Delete section ${section.title}`} onClick={() => p.onDelete(section)}>
+          <Trash size={14} />
         </button>
       </div>
       <div className="editor">
-        <div className="editor-toolbar" onMouseDown={(e) => e.preventDefault()}>
-          <button onClick={() => cmd("bold")} title="Bold (Cmd/Ctrl+B)">
-            <b>B</b>
+        <div className="editor-toolbar" onMouseDown={(e) => e.preventDefault()} role="toolbar" aria-label={`Format ${section.title} notes`}>
+          <button onClick={() => cmd("bold")} title="Bold (⌘B)" aria-label="Bold">
+            <TextB size={16} weight="bold" />
           </button>
-          <button onClick={() => cmd("italic")} title="Italic (Cmd/Ctrl+I)">
-            <i>I</i>
+          <button onClick={() => cmd("italic")} title="Italic (⌘I)" aria-label="Italic">
+            <TextItalic size={16} />
           </button>
-          <button onClick={() => cmd("underline")} title="Underline">
-            <u>U</u>
+          <button onClick={() => cmd("underline")} title="Underline (⌘U)" aria-label="Underline">
+            <TextUnderline size={16} />
           </button>
-          <button onClick={() => cmd("insertUnorderedList")} title="Bulleted list">
-            •≡
+          <button onClick={() => cmd("insertUnorderedList")} title="Bulleted list" aria-label="Bulleted list">
+            <ListBullets size={16} />
           </button>
-          <button onClick={() => cmd("insertOrderedList")} title="Numbered list">
-            1.
+          <button onClick={() => cmd("insertOrderedList")} title="Numbered list" aria-label="Numbered list">
+            <ListNumbers size={16} />
           </button>
-          <button onClick={() => cmd("formatBlock", "h4")} title="Heading">
-            H
+          <button onClick={() => cmd("formatBlock", "h4")} title="Subheading" aria-label="Subheading">
+            <TextH size={16} />
           </button>
-          <button onClick={() => fileRef.current?.click()} title="Insert image (or paste one)">
-            ▣
+          <button onClick={() => fileRef.current?.click()} title="Add an image (or paste one)" aria-label="Add image">
+            <ImageSquare size={16} />
           </button>
           <input
             ref={fileRef}
@@ -117,7 +131,6 @@ export const SectionEditor = memo(function SectionEditor(p: Props) {
               e.target.value = "";
             }}
           />
-          <span className="spacer" />
         </div>
         <div
           ref={ref}
@@ -127,7 +140,7 @@ export const SectionEditor = memo(function SectionEditor(p: Props) {
           role="textbox"
           aria-multiline="true"
           aria-label={`${section.title} notes`}
-          data-placeholder={`Key points: ${section.title.toLowerCase()}… (select text in the PDF to add bullets here)`}
+          data-placeholder={`Write about the ${section.title.toLowerCase()}, or select text in the PDF to add it here…`}
           onInput={emit}
           onPaste={(e) => {
             const imgs = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
