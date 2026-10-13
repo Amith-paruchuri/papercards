@@ -315,8 +315,73 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .paper-card .meta-icons { display: inline-flex; gap: 8px; align-items: center; color: var(--ink-3); }
 .paper-card .select-box { position: absolute; left: 12px; top: 12px; opacity: 0; transition: opacity 0.15s var(--ease); }
 .paper-card .select-box input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
-.paper-card:hover .select-box, .paper-card.selected .select-box, .paper-card .select-box:focus-within, .card-grid.selecting .select-box { opacity: 1; }
-.paper-card:hover h3, .paper-card.selected h3, .card-grid.selecting h3 { transform: translateX(14px); }
+.paper-card:hover .select-box, .paper-card.selected .select-box, .paper-card .select-box:focus-within, .card-grid.selecting .select-box, .shelf.selecting .select-box { opacity: 1; }
+.paper-card:hover h3, .paper-card.selected h3, .card-grid.selecting h3, .shelf.selecting h3 { transform: translateX(14px); }
+
+/* status change: the corner flips over to its new colour and the card glows once in that colour */
+.paper-card.fold-flip::after { animation: foldFlip 0.75s cubic-bezier(0.3, 1.4, 0.4, 1); transform-origin: top right; }
+.paper-card.fold-flip { animation: foldGlow 0.9s var(--ease); }
+@keyframes foldFlip {
+  0% { transform: scale(1) rotate(0); }
+  30% { transform: scale(2.4) rotate(-10deg); }
+  55% { transform: scale(1.7) rotate(4deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+@keyframes foldGlow {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--fold) 55%, transparent), var(--shadow-sm); }
+  100% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--fold) 0%, transparent), var(--shadow-sm); }
+}
+.paper-card.compact { min-height: 0; padding: 14px 16px 10px; gap: 6px; }
+.paper-card.compact h3 { font-size: 15.5px; -webkit-line-clamp: 3; }
+.paper-card.compact .byline { font-size: 12.5px; }
+.paper-card.compact .foot { min-height: 26px; padding-top: 4px; }
+
+/* reading shelf: four status columns, drag to change status */
+.shelf { display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 14px; align-items: start; overflow-x: auto; padding-bottom: 8px; }
+.shelf-col {
+  display: flex; flex-direction: column; min-width: 0; min-height: 240px; padding: 10px; border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent); border: 1px solid var(--line);
+  transition: background-color 0.18s var(--ease), border-color 0.18s var(--ease), box-shadow 0.18s var(--ease);
+}
+.shelf-col.over { background: color-mix(in srgb, var(--col) 10%, var(--surface)); border-color: var(--col); box-shadow: inset 0 0 0 1px var(--col); }
+.shelf-head { display: flex; align-items: center; gap: 8px; padding: 4px 4px 10px; }
+.shelf-head h2 { margin: 0; font: 600 13.5px/1 var(--font-ui); }
+.shelf-head .count { margin-left: auto; font-size: 12px; color: var(--ink-3); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; }
+.shelf-col { border-top: 3px solid var(--col); }
+.shelf-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.shelf-list > * { min-width: 0; }
+.shelf-empty {
+  display: grid; place-items: center; text-align: center; min-height: 120px; padding: 16px; border: 1.5px dashed var(--line-strong);
+  border-radius: var(--r-surface); color: var(--ink-3); font-size: 12.5px; line-height: 1.5;
+}
+.shelf-col.over .shelf-empty { border-color: var(--col); color: var(--ink-2); }
+
+/* highlight in flight from the PDF to its section */
+.fly-ghost {
+  position: fixed; z-index: 95; pointer-events: none; padding: 6px 10px; border-radius: 8px; will-change: transform, opacity;
+  font: 400 13px/1.45 var(--font-serif); color: #1d2128; transform-origin: left top;
+  background: color-mix(in srgb, var(--sec) 45%, #fffef9); box-shadow: 0 10px 30px -10px rgba(24, 36, 66, 0.45), 0 0 0 1px color-mix(in srgb, var(--sec) 60%, transparent);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* card -> paper page transition (View Transitions API) */
+.paper-head { view-transition-name: pc-card; }
+.paper-title { view-transition-name: pc-title; }
+.vt-paper .notes-col { view-transition-name: pc-notes; }
+.vt-paper .pdf-col { view-transition-name: pc-pdf; }
+::view-transition-group(pc-card), ::view-transition-group(pc-title) { animation-duration: 0.5s; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+::view-transition-old(pc-title), ::view-transition-new(pc-title) { height: 100%; width: auto; object-fit: none; object-position: left top; }
+::view-transition-old(pc-card), ::view-transition-new(pc-card) { height: 100%; width: 100%; object-fit: fill; }
+::view-transition-new(pc-notes) { animation: vtRise 0.5s 0.12s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+::view-transition-new(pc-pdf) { animation: vtSlide 0.55s 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+::view-transition-old(pc-notes), ::view-transition-old(pc-pdf) { animation: vtOut 0.2s ease both; }
+::view-transition-old(root) { animation: vtOut 0.25s ease both; }
+::view-transition-new(root) { animation: vtIn 0.35s 0.05s ease both; }
+@keyframes vtRise { from { opacity: 0; transform: translateY(24px); } }
+@keyframes vtSlide { from { opacity: 0; transform: translateX(40px); } }
+@keyframes vtOut { to { opacity: 0; } }
+@keyframes vtIn { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
 .paper-card h3 { transition: transform 0.18s var(--ease); }
 .coverage { display: flex; gap: 3px; width: 100%; }
 .coverage i { flex: 1; height: 3px; border-radius: 3px; background: var(--line); }
@@ -653,6 +718,8 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   .paper-title { font-size: 24px; }
   .notes-col { padding: 18px 16px 30px; }
   .card-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .shelf { grid-template-columns: repeat(4, minmax(250px, 82vw)); scroll-snap-type: x mandatory; }
+  .shelf-col { scroll-snap-align: start; }
   .first-run h2 { font-size: 30px; }
   .selection-bar { border-radius: var(--r-surface); }
 }

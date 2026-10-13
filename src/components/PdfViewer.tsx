@@ -1,4 +1,5 @@
 "use client";
+import { flyToNotes } from "@/lib/motion-fx";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { loadPdfJs, openPdf } from "@/lib/pdf/pdfjs";
@@ -250,6 +251,14 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(p
 
   function save(sectionId: string | null, color: string) {
     if (menu?.kind !== "select") return;
+    const sel = window.getSelection();
+    let from = sel && sel.rangeCount ? sel.getRangeAt(0).getBoundingClientRect() : null;
+    if ((!from || !from.width) && stageRef.current) {
+      // Selection already collapsed: start from where the menu sits.
+      const st = stageRef.current.getBoundingClientRect();
+      from = new DOMRect(st.left + menu.x - stageRef.current.scrollLeft - 160, st.top + menu.y - stageRef.current.scrollTop - 30, 200, 20);
+    }
+    if (from && sectionId) flyToNotes(menu.text, from, document.querySelector<HTMLElement>(`.section-box[data-section="${sectionId}"] .editor`), color);
     onHighlight({ page: menu.page, text: menu.text, rects: menu.rects, sectionId, color });
     window.getSelection()?.removeAllRanges();
     setMenu(null);

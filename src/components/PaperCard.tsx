@@ -1,7 +1,10 @@
 "use client";
+import { useEffect, useRef } from "react";
 import { FilePdf, Star } from "@phosphor-icons/react";
 import { formatAuthorShort } from "@/lib/citations";
 import { STATUS_LABELS, type LibraryPaper, type Tag } from "@/lib/types";
+
+const seenStatus = new Map<string, string>();
 
 /** The signature element: an index card whose folded corner shows reading status
  *  and whose bottom strip shows which note sections have content. */
@@ -13,6 +16,7 @@ export function PaperCard({
   onToggle,
   onDragStart,
   static: isStatic,
+  compact,
 }: {
   paper: Pick<LibraryPaper, "id" | "title" | "authors" | "year" | "journal" | "abstract" | "status" | "priority" | "pdf_path"> & Partial<Pick<LibraryPaper, "paper_tags" | "note_sections">>;
   tagById?: Map<string, Tag>;
@@ -21,13 +25,30 @@ export function PaperCard({
   onToggle?: () => void;
   onDragStart?: (e: React.DragEvent) => void;
   static?: boolean;
+  compact?: boolean;
 }) {
+  // When the reading status changes, the folded corner flips over to show the new colour.
+  // Remembered per paper (not per component) so it also fires when a card re-mounts in another shelf column.
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    const before = seenStatus.get(paper.id);
+    seenStatus.set(paper.id, paper.status);
+    if (!el || isStatic || !before || before === paper.status) return;
+    el.classList.remove("fold-flip");
+    void el.offsetWidth; // restart the animation
+    el.classList.add("fold-flip");
+    const t = setTimeout(() => el.classList.remove("fold-flip"), 900);
+    return () => clearTimeout(t);
+  }, [paper.id, paper.status, isStatic]);
   const sections = [...(paper.note_sections ?? [])].sort((a, b) => a.position - b.position);
   const author = formatAuthorShort(paper.authors);
   return (
     <article
-      className={`paper-card${selected ? " selected" : ""}`}
+      ref={ref}
+      className={`paper-card${selected ? " selected" : ""}${compact ? " compact" : ""}`}
       data-status={paper.status}
+      data-id={isStatic ? undefined : paper.id}
       onClick={onOpen}
       onKeyDown={(e) => !isStatic && e.key === "Enter" && onOpen?.(e)}
       draggable={!isStatic}
@@ -62,7 +83,7 @@ export function PaperCard({
           </>
         ) : null}
       </div>
-      {paper.abstract && <div className="abstract">{paper.abstract}</div>}
+      {paper.abstract && !compact && <div className="abstract">{paper.abstract}</div>}
       <div className="foot">
         {(paper.paper_tags ?? []).slice(0, 3).map((t) => {
           const tag = tagById?.get(t.tag_id);

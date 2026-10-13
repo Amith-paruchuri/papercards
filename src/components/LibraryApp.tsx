@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "motion/react";
+import { nameCard, navigateWithTransition } from "@/lib/motion-fx";
 import {
   ArrowRight,
   ArrowSquareIn,
@@ -15,6 +16,7 @@ import {
   FolderSimple,
   Hash,
   HighlighterCircle,
+  Kanban,
   List,
   MagnifyingGlass,
   PencilSimple,
@@ -76,7 +78,8 @@ export function LibraryApp() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const scope = params.get("scope") || "all"; // all | unfiled | status:x | col:id | tag:id
-  const view = params.get("view") === "list" ? "list" : "grid";
+  const viewParam = params.get("view");
+  const view = viewParam === "list" ? "list" : viewParam === "shelf" ? "shelf" : "grid";
   const [q, setQ] = useState("");
   const [hitState, setHitState] = useState<{ q: string; ids: Set<string> } | null>(null);
   const hits = q.trim() && hitState?.q === q ? hitState.ids : null;
@@ -96,6 +99,9 @@ export function LibraryApp() {
   const [guest, setGuest] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const reduceMotion = useReducedMotion();
+  // Arriving back from a paper inside a page transition: show cards at once so the morph lands on a visible card.
+  const [arrivedViaTransition] = useState(() => typeof document !== "undefined" && document.documentElement.classList.contains("vt-paper"));
+  const [dropStatus, setDropStatus] = useState<PaperStatus | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const setParam = useCallback(
@@ -315,7 +321,13 @@ export function LibraryApp() {
 
   function openPaper(e: React.MouseEvent | React.KeyboardEvent, id: string) {
     if ("metaKey" in e && (e.metaKey || e.ctrlKey || e.shiftKey)) return toggleSelect(id);
-    router.push(`/paper/${id}`);
+    const card = (e.currentTarget as HTMLElement).closest<HTMLElement>(".paper-card");
+    if (card) nameCard(card);
+    navigateWithTransition(
+      () => router.push(`/paper/${id}`),
+      // Wait for the title and the notes so both arrive together inside the transition.
+      () => Boolean(document.querySelector(".paper-title") && document.querySelector(".notes-col .section-box"))
+    );
   }
 
   async function bulk(fn: () => Promise<void>, msg: string) {
@@ -407,10 +419,27 @@ export function LibraryApp() {
     }
   }
 
+  async function onDropOnStatus(e: React.DragEvent, status: PaperStatus) {
+    e.preventDefault();
+    setDropStatus(null);
+    const ids = (e.dataTransfer.getData("application/x-papercards-ids") || "").split(",").filter(Boolean);
+    const moving = ids.filter((id) => papers?.find((p) => p.id === id && p.status !== status));
+    if (!moving.length) return;
+    // Move the cards right away; the database catches up.
+    setPapers((ps) => ps && ps.map((p) => (moving.includes(p.id) ? { ...p, status } : p)));
+    try {
+      await setStatus(moving, status);
+      toast(`${moving.length === 1 ? "Moved" : `Moved ${moving.length} papers`} to ${STATUS_LABELS[status].toLowerCase()}.`);
+    } catch (err) {
+      toast(errorMessage(err), { err: true });
+      void load();
+    }
+  }
+
   function dragStart(e: React.DragEvent, id: string) {
     const ids = selected.has(id) ? [...selected] : [id];
     e.dataTransfer.setData("application/x-papercards-ids", ids.join(","));
-    e.dataTransfer.effectAllowed = "copy";
+    e.dataTransfer.effectAllowed = "copyMove";
   }
 
   const navItem = (key: string, icon: React.ReactNode, label: string, count: number | undefined, actions?: React.ReactNode, dropId?: string) => (
@@ -724,6 +753,9 @@ export function LibraryApp() {
                   <button className={view === "grid" ? "on" : ""} aria-pressed={view === "grid"} aria-label="Cards" onClick={() => setParam("view", null)}>
                     <SquaresFour size={16} />
                   </button>
+                  <button className={view === "shelf" ? "on" : ""} aria-pressed={view === "shelf"} aria-label="Reading shelf" title="Reading shelf" onClick={() => setParam("view", "shelf")}>
+                    <Kanban size={16} />
+                  </button>
                   <button className={view === "list" ? "on" : ""} aria-pressed={view === "list"} aria-label="List" onClick={() => setParam("view", "list")}>
                     <Rows size={16} />
                   </button>
@@ -819,6 +851,59 @@ export function LibraryApp() {
                     </>
                   )}
                 </div>
+              ) : view === "shelf" ? (
+                <LayoutGroup>
+                  <div className={`shelf${selected.size ? " selecting" : ""}`}>
+                    {STATUSES.map((st) => {
+                      const col = visible.filter((p) => p.status === st);
+                      return (
+                        <section
+                          key={st}
+                          className={`shelf-col${dropStatus === st ? " over" : ""}`}
+                          style={{ "--col": `var(--st-${st})` } as React.CSSProperties}
+                          aria-label={`${STATUS_LABELS[st]}, ${col.length} ${col.length === 1 ? "paper" : "papers"}`}
+                          onDragOver={(e) => {
+                            if (e.dataTransfer.types.includes("application/x-papercards-ids")) {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = "move";
+                              setDropStatus(st);
+                            }
+                          }}
+                          onDragLeave={(e) => {
+                            if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropStatus(null);
+                          }}
+                          onDrop={(e) => void onDropOnStatus(e, st)}
+                        >
+                          <header className="shelf-head">
+                            <span className="status-swatch" style={{ background: `var(--st-${st})` }} />
+                            <h2>{STATUS_LABELS[st]}</h2>
+                            <span className="tnum count">{col.length}</span>
+                          </header>
+                          <div className="shelf-list">
+                            {col.map((p) => (
+                              <motion.div
+                                key={p.id}
+                                layoutId={reduceMotion ? undefined : `shelf-${p.id}`}
+                                transition={{ type: "spring", stiffness: 320, damping: 32 }}
+                              >
+                                <PaperCard
+                                  compact
+                                  paper={p}
+                                  tagById={tagById}
+                                  selected={selected.has(p.id)}
+                                  onOpen={(e) => openPaper(e, p.id)}
+                                  onToggle={() => toggleSelect(p.id)}
+                                  onDragStart={(e) => dragStart(e, p.id)}
+                                />
+                              </motion.div>
+                            ))}
+                            {col.length === 0 && <div className="shelf-empty">Drag a card here to mark it {STATUS_LABELS[st].toLowerCase()}</div>}
+                          </div>
+                        </section>
+                      );
+                    })}
+                  </div>
+                </LayoutGroup>
               ) : view === "list" ? (
                 <div className="table-wrap">
                   <table className="list-table">
@@ -865,7 +950,7 @@ export function LibraryApp() {
                 </div>
               ) : (
                 <div className={`card-grid${selected.size ? " selecting" : ""}`}>
-                  <AnimatePresence mode="popLayout" initial={!reduceMotion}>
+                  <AnimatePresence mode="popLayout" initial={!reduceMotion && !arrivedViaTransition}>
                     {visible.map((p, i) => (
                       <motion.div
                         key={p.id}

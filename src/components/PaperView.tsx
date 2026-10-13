@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { nameCard, navigateWithTransition } from "@/lib/motion-fx";
 import { PdfViewer, type PdfViewerHandle } from "./PdfViewer";
 import { SectionEditor } from "./SectionEditor";
 import { errorMessage, useToast } from "./Toast";
@@ -264,8 +265,13 @@ export function PaperView({ id }: { id: string }) {
       setHighlights((hs) => [...hs, saved]);
       setUndoStack((u) => [...u, saved.id]);
       if (h.sectionId) {
-        const sec = sectionsRef.current.find((s) => s.id === h.sectionId);
-        if (sec) setSectionHtmlExternally(sec.id, appendHighlightBullet(sec.content_html, saved.id, h.text));
+        // Land the bullet as the flying highlight arrives (see flyToNotes), not before.
+        const land = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 560;
+        const sectionId = h.sectionId;
+        setTimeout(() => {
+          const sec = sectionsRef.current.find((s) => s.id === sectionId);
+          if (sec) setSectionHtmlExternally(sec.id, appendHighlightBullet(sec.content_html, saved.id, h.text));
+        }, land);
       }
       if (paper.status === "to_read" || paper.status === "reading") void patchPaper({ status: "annotated" });
     } catch (e) {
@@ -438,7 +444,23 @@ export function PaperView({ id }: { id: string }) {
     <div>
       <header className="paper-head">
         <div className="crumbs">
-          <Link href="/" aria-label="Back to library">
+          <Link
+            href="/"
+            aria-label="Back to library"
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+              e.preventDefault();
+              navigateWithTransition(
+                () => router.push("/"),
+                () => {
+                  const card = document.querySelector<HTMLElement>(`.paper-card[data-id="${id}"]`);
+                  if (card) nameCard(card);
+                  return Boolean(card);
+                },
+                2200
+              );
+            }}
+          >
             <ArrowLeft size={16} /> <OrigamiMark size={20} /> <span className="desktop-only">Library</span>
           </Link>
           <span className="spacer" />

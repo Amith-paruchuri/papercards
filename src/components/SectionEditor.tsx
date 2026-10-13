@@ -64,7 +64,7 @@ export const SectionEditor = memo(function SectionEditor(p: Props) {
   }
 
   return (
-    <div className="section-box" style={{ "--sec": section.color || "var(--line-strong)" } as React.CSSProperties}>
+    <div className="section-box" data-section={section.id} style={{ "--sec": section.color || "var(--line-strong)" } as React.CSSProperties}>
       <div className="section-head">
         <button
           className="swatch"
