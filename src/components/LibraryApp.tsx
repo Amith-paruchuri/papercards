@@ -2,7 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
+  ArrowRight,
   ArrowSquareIn,
   BookOpen,
   BookmarkSimple,
@@ -29,6 +31,8 @@ import { Brand, OrigamiMark } from "./Logo";
 import { AddPaperModal } from "./AddPaperModal";
 import { PaperCard } from "./PaperCard";
 import { SAMPLE_CARDS } from "@/lib/sample-cards";
+import { supabaseBrowser } from "@/lib/supabase/client";
+import { seedDemoLibrary } from "@/lib/demo";
 import { errorMessage, useToast } from "./Toast";
 import { ThemeSelect } from "./ThemeSelect";
 import { COMMAND_EVENT, type Command } from "./CommandPalette";
@@ -60,8 +64,6 @@ const STATUS_ICON: Record<PaperStatus, React.ReactNode> = {
   read: <CheckCircle size={17} className="nav-icon" />,
   annotated: <HighlighterCircle size={17} className="nav-icon" />,
 };
-// Three landmark papers for trying PaperCards on an empty library.
-const SAMPLE_DOIS = ["10.1038/s41586-021-03819-2", "10.1126/science.1225829", "10.1038/s41591-019-0508-1"];
 
 export function LibraryApp() {
   const router = useRouter();
@@ -91,6 +93,9 @@ export function LibraryApp() {
   const [dropCol, setDropCol] = useState<string | null>(null);
   const [pageDrag, setPageDrag] = useState(false);
   const [firstDrag, setFirstDrag] = useState(false);
+  const [guest, setGuest] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const reduceMotion = useReducedMotion();
   const searchRef = useRef<HTMLInputElement>(null);
 
   const setParam = useCallback(
@@ -127,6 +132,43 @@ export function LibraryApp() {
       alive = false;
     };
   }, [apply, fail]);
+
+  // Guests (anonymous sign-in) get a banner offering to keep their library.
+  useEffect(() => {
+    let alive = true;
+    supabaseBrowser()
+      .auth.getUser()
+      .then(({ data }) => alive && setGuest(Boolean(data.user?.is_anonymous)))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // ?welcome=1 (from "Try it now"): fill an empty library with three classic papers.
+  const welcome = params.get("welcome");
+  useEffect(() => {
+    if (!welcome || papers === null) return;
+    const t = setTimeout(() => {
+      setParam("welcome", null);
+      if (papers.length === 0) void loadDemo();
+    }, 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [welcome, papers, setParam]);
+
+  async function loadDemo() {
+    setSeeding(true);
+    try {
+      const n = await seedDemoLibrary();
+      await load();
+      toast(`Added ${n} classic papers to explore. Open one to see its notes.`);
+    } catch (e) {
+      toast(errorMessage(e), { err: true });
+    } finally {
+      setSeeding(false);
+    }
+  }
 
   // Debounced full-text search on the server.
   useEffect(() => {
@@ -259,6 +301,8 @@ export function LibraryApp() {
     if (annotated) parts.push(`${annotated} annotated`);
     return parts.length === 3 ? `${parts[0]}, ${parts[1]} and ${parts[2]}.` : `${parts.join(" and ")}.`;
   })();
+
+  const continuePaper = (papers ?? []).filter((p) => p.status === "reading").sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0] ?? null;
 
   function toggleSelect(id: string) {
     setSelected((s) => {
@@ -567,17 +611,57 @@ export function LibraryApp() {
               over={firstDrag}
               onFiles={(files) => setAdding({ files })}
               onDois={() => setAdding({})}
-              onSamples={() => setAdding({ dois: SAMPLE_DOIS })}
+              onSamples={() => void loadDemo()}
+              seeding={seeding}
             />
           ) : (
             <>
+              {guest && <GuestBanner />}
               <div className="lib-head">
-                <div>
+                <div className="lib-head-text">
                   <h1 className="lib-title">{scopeTitle}</h1>
                   <p className="lib-summary" aria-live="polite">
                     {summary}
                   </p>
+                  {scope === "all" && papers && papers.length > 0 && (
+                    <div className="status-meter" role="group" aria-label="Reading progress">
+                      <div className="meter-bar" aria-hidden="true">
+                        {STATUSES.map((s) =>
+                          counts.status[s] ? (
+                            <motion.i
+                              key={s}
+                              style={{ background: `var(--st-${s})`, flexGrow: counts.status[s] }}
+                              initial={reduceMotion ? false : { scaleX: 0 }}
+                              animate={{ scaleX: 1 }}
+                              transition={{ type: "spring", stiffness: 120, damping: 22, delay: 0.1 + STATUSES.indexOf(s) * 0.06 }}
+                            />
+                          ) : null
+                        )}
+                      </div>
+                      <div className="meter-legend">
+                        {STATUSES.map((s) => (
+                          <button key={s} type="button" onClick={() => setParam("scope", `status:${s}`)}>
+                            <span className="status-swatch" style={{ background: `var(--st-${s})` }} />
+                            {STATUS_LABELS[s]} <span className="tnum">{counts.status[s] ?? 0}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
+                {scope === "all" && continuePaper && (
+                  <Link href={`/paper/${continuePaper.id}`} className="continue-card">
+                    <span className="cc-label">
+                      <BookOpen size={14} aria-hidden="true" /> Continue reading
+                    </span>
+                    <span className="cc-title">{continuePaper.title}</span>
+                    <span className="cc-by">
+                      {formatAuthorShort(continuePaper.authors)}
+                      {continuePaper.year ? `, ${continuePaper.year}` : ""}
+                    </span>
+                    <ArrowRight className="cc-arrow" size={18} aria-hidden="true" />
+                  </Link>
+                )}
               </div>
 
               {currentCollection && (
@@ -781,17 +865,27 @@ export function LibraryApp() {
                 </div>
               ) : (
                 <div className={`card-grid${selected.size ? " selecting" : ""}`}>
-                  {visible.map((p) => (
-                    <PaperCard
-                      key={p.id}
-                      paper={p}
-                      tagById={tagById}
-                      selected={selected.has(p.id)}
-                      onOpen={(e) => openPaper(e, p.id)}
-                      onToggle={() => toggleSelect(p.id)}
-                      onDragStart={(e) => dragStart(e, p.id)}
-                    />
-                  ))}
+                  <AnimatePresence mode="popLayout" initial={!reduceMotion}>
+                    {visible.map((p, i) => (
+                      <motion.div
+                        key={p.id}
+                        layout={!reduceMotion}
+                        initial={{ opacity: 0, y: 16, scale: 0.985 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.15 } }}
+                        transition={{ type: "spring", stiffness: 260, damping: 30, delay: Math.min(i, 12) * 0.035 }}
+                      >
+                        <PaperCard
+                          paper={p}
+                          tagById={tagById}
+                          selected={selected.has(p.id)}
+                          onOpen={(e) => openPaper(e, p.id)}
+                          onToggle={() => toggleSelect(p.id)}
+                          onDragStart={(e) => dragStart(e, p.id)}
+                        />
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
                 </div>
               )}
             </>
@@ -822,7 +916,7 @@ export function LibraryApp() {
   );
 }
 
-function FirstRun({ over, onFiles, onDois, onSamples }: { over: boolean; onFiles: (f: File[]) => void; onDois: () => void; onSamples: () => void }) {
+function FirstRun({ over, onFiles, onDois, onSamples, seeding }: { over: boolean; onFiles: (f: File[]) => void; onDois: () => void; onSamples: () => void; seeding: boolean }) {
   return (
     <section className="first-run" aria-labelledby="first-run-title">
       <div className="card-stack centered" aria-hidden="true">
@@ -848,10 +942,48 @@ function FirstRun({ over, onFiles, onDois, onSamples }: { over: boolean; onFiles
         <Link className="btn ghost" href="/import">
           <ArrowSquareIn size={16} /> Import old Paper Cards
         </Link>
-        <button className="btn quiet" onClick={onSamples}>
-          Try it with 3 classic papers
+        <button className="btn quiet" onClick={onSamples} disabled={seeding}>
+          {seeding ? "Setting up a demo library…" : "Try it with 5 classic papers"}
         </button>
       </div>
     </section>
+  );
+}
+
+function GuestBanner() {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function keep(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    const { error } = await supabaseBrowser().auth.updateUser({ email: email.trim() });
+    setBusy(false);
+    if (error) toast(`${error.message} Check the address and try again.`, { err: true });
+    else {
+      toast(`Check ${email.trim()} and open the link to keep this library.`);
+      setOpen(false);
+    }
+  }
+  return (
+    <div className="guest-banner" role="note">
+      <span className="gb-dot" aria-hidden="true" />
+      <span className="gb-text">
+        <strong>You’re trying PaperCards as a guest.</strong> This library lives only in this browser until you add your email.
+      </span>
+      {open ? (
+        <form className="gb-form" onSubmit={keep}>
+          <input type="email" required autoComplete="email" spellCheck={false} placeholder="you@institute.edu…" aria-label="Email to keep this library" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <button className="btn small" disabled={busy}>
+            {busy ? "Sending…" : "Send link"}
+          </button>
+        </form>
+      ) : (
+        <button className="btn ghost small" onClick={() => setOpen(true)}>
+          Keep this library
+        </button>
+      )}
+    </div>
   );
 }

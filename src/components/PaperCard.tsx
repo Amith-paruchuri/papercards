@@ -32,6 +32,17 @@ export function PaperCard({
       onKeyDown={(e) => !isStatic && e.key === "Enter" && onOpen?.(e)}
       draggable={!isStatic}
       onDragStart={onDragStart}
+      onPointerMove={
+        isStatic
+          ? undefined
+          : (e) => {
+              // Soft light that follows the cursor; CSS variables only, no re-render.
+              const el = e.currentTarget;
+              const r = el.getBoundingClientRect();
+              el.style.setProperty("--mx", `${e.clientX - r.left}px`);
+              el.style.setProperty("--my", `${e.clientY - r.top}px`);
+            }
+      }
       tabIndex={isStatic ? -1 : 0}
       aria-label={isStatic ? undefined : `${paper.title}. ${STATUS_LABELS[paper.status]}.`}
     >

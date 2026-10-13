@@ -66,6 +66,8 @@ Scale (px): 12, 13, 13.5, 14 (base), 15, 17.5 (card title), 22, 30 (paper title)
 
 ## 6. Depth and elevation
 
+The page background carries a faint washi grain (`--grain`, an inline SVG noise); surfaces stay clean so cards read as paper on a desk. Cards get a soft indigo light under the cursor.
+
 Three shadow levels, all indigo-tinted: `--shadow-sm` (cards at rest, active nav), `--shadow-md` (card hover, focused editor), `--shadow-lg` (menus, dialogs, selection bar, toasts). PDF pages sit on the stage with their own paper shadow.
 
 ## 7. Do's and don'ts
@@ -75,6 +77,7 @@ Do:
 - Write copy from the researcher's side: "Add papers", "Cite and export", "Waiting to be read".
 - Make every error say what to do next.
 - Give motion a reason: menus pop, a new highlight bullet inks in, the jumped-to highlight flashes. Nothing loops.
+- Motion uses the `motion` package (`motion/react`) with springs: the sign-in story plays once (PDF sentence highlighted, lands as a note), library cards enter with a short stagger and glide into place when filters change, the reading-progress bar grows in. All of it respects reduced motion.
 
 Don't:
 - Cream-and-clay palettes, purple gradients, glassmorphism, neon.

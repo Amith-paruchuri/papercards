@@ -187,7 +187,7 @@ function sortRows(rows, order) {
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
 export function makeJwt(uid, email) {
   const exp = Math.floor(Date.now() / 1000) + 3600 * 24;
-  return `${b64url({ alg: "HS256", typ: "JWT" })}.${b64url({ sub: uid, email, role: "authenticated", aud: "authenticated", exp, iat: exp - 3600 * 24 })}.mock-signature`;
+  return `${b64url({ alg: "HS256", typ: "JWT" })}.${b64url({ sub: uid, email, is_anonymous: Boolean(users.get(uid)?.anon), role: "authenticated", aud: "authenticated", exp, iat: exp - 3600 * 24 })}.mock-signature`;
 }
 function uidFrom(req) {
   const auth = req.headers.authorization || "";
@@ -202,7 +202,7 @@ function uidFrom(req) {
 const users = new Map();
 function userJson(uid) {
   const u = users.get(uid);
-  return { id: uid, aud: "authenticated", role: "authenticated", email: u?.email, app_metadata: { provider: "email" }, user_metadata: {}, created_at: "2026-10-01T00:00:00Z" };
+  return { id: uid, aud: "authenticated", role: "authenticated", email: u?.email ?? "", is_anonymous: Boolean(u?.anon), app_metadata: { provider: u?.anon ? "anonymous" : "email" }, user_metadata: {}, created_at: "2026-10-01T00:00:00Z" };
 }
 export function sessionFor(uid) {
   const u = users.get(uid);
@@ -238,6 +238,14 @@ const server = http.createServer(async (req, res) => {
     // ---- auth
     if (p === "/auth/v1/.well-known/jwks.json") return send(res, 200, { keys: [] });
     if (p === "/auth/v1/otp") return send(res, 200, {});
+    if (p === "/auth/v1/signup" && req.method === "POST") {
+      // Anonymous sign-in (no email in the body).
+      const b = JSON.parse((await body(req)).toString() || "{}");
+      if (b.email) return send(res, 400, { msg: "mock supports anonymous sign-up only" });
+      const nid = randomUUID();
+      users.set(nid, { email: undefined, anon: true });
+      return send(res, 200, sessionFor(nid));
+    }
     if (p === "/auth/v1/logout") return send(res, 204);
     if (p === "/auth/v1/user") {
       const uid = uidFrom(req);

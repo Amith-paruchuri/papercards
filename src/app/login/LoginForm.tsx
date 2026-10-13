@@ -1,11 +1,13 @@
 "use client";
 import { useState } from "react";
-import { EnvelopeSimple, CircleNotch } from "@phosphor-icons/react";
+import { useRouter } from "next/navigation";
+import { EnvelopeSimple, CircleNotch, ArrowRight } from "@phosphor-icons/react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
 export function LoginForm({ next, initialError }: { next?: string; initialError?: string }) {
+  const router = useRouter();
   const [email, setEmail] = useState("");
-  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+  const [state, setState] = useState<"idle" | "sending" | "sent" | "guest">("idle");
   const [error, setError] = useState<string | null>(initialError ?? null);
 
   async function submit(e: React.FormEvent) {
@@ -24,6 +26,20 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
     } else {
       setState("sent");
     }
+  }
+
+  async function tryAsGuest() {
+    setError(null);
+    setState("guest");
+    const { error } = await supabaseBrowser().auth.signInAnonymously();
+    if (error) {
+      setError(/anonymous/i.test(error.message) ? "Trying without an account is switched off right now. Use your email instead." : `${error.message} Try again in a moment.`);
+      setState("idle");
+      return;
+    }
+    // The browser client has already written the session cookie, so the server sees it.
+    router.replace("/?welcome=1");
+    router.refresh();
   }
 
   if (state === "sent") {
@@ -56,7 +72,7 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
         value={email}
         onChange={(e) => setEmail(e.target.value)}
       />
-      <button className="btn" disabled={state === "sending"}>
+      <button className="btn" disabled={state === "sending" || state === "guest"}>
         {state === "sending" ? (
           <>
             <CircleNotch size={16} className="spin" /> Sending link…
@@ -70,8 +86,25 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
           {error}
         </div>
       )}
-      <p className="hint" style={{ marginTop: 14 }}>
+      <p className="hint" style={{ marginTop: 12 }}>
         New here? The same link creates your account.
+      </p>
+      <div className="or-rule" role="presentation">
+        <span>or</span>
+      </div>
+      <button type="button" className="btn ghost guest-btn" onClick={() => void tryAsGuest()} disabled={state === "guest" || state === "sending"}>
+        {state === "guest" ? (
+          <>
+            <CircleNotch size={16} className="spin" /> Setting up a demo library…
+          </>
+        ) : (
+          <>
+            Try it now, no account <ArrowRight size={15} />
+          </>
+        )}
+      </button>
+      <p className="hint" style={{ marginTop: 10 }}>
+        Opens a private demo library with five classic papers. Add your email later to keep it.
       </p>
     </form>
   );
