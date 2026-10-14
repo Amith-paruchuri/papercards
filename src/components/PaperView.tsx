@@ -57,7 +57,9 @@ import { downloadText, slug } from "@/lib/download";
 import { normalizeDoi } from "@/lib/doi";
 import { lookupDoi } from "@/lib/ingest";
 import { sha256Hex } from "@/lib/pdf/pdfjs";
-import { appendHighlightBullet, htmlToText, removeHighlightBullet, sanitizeHtml } from "@/lib/sanitize";
+import { appendHighlightBullet, htmlToText, rawHighlightBullets, removeHighlightBullet, rewriteHighlightBullets, sanitizeHtml } from "@/lib/sanitize";
+import { cleanPdfText } from "@/lib/clean-text";
+import { readAiAuto, rewriteWithAi, writeAiAuto } from "@/lib/ai-client";
 import {
   STATUS_LABELS,
   STUDY_TYPE_LABELS,
@@ -93,6 +95,13 @@ export function PaperView({ id }: { id: string }) {
   const [tagInput, setTagInput] = useState("");
   const [merged, setMerged] = useState(false);
   const [fullPdf, setFullPdf] = useState(false);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [aiBusy, setAiBusy] = useState<Record<string, boolean>>({});
+  const [aiAuto, setAiAuto] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setAiAuto(readAiAuto()), 0);
+    return () => clearTimeout(t);
+  }, []);
   const [menu, setMenu] = useState(false);
   const sectionsRef = useRef<NoteSection[]>([]);
   sectionsRef.current = sections;
@@ -268,14 +277,49 @@ export function PaperView({ id }: { id: string }) {
         // Land the bullet as the flying highlight arrives (see flyToNotes), not before.
         const land = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 560;
         const sectionId = h.sectionId;
+        // The bullet gets the cleaned-up text (broken words rejoined etc.); the highlight keeps the exact quote.
         setTimeout(() => {
           const sec = sectionsRef.current.find((s) => s.id === sectionId);
-          if (sec) setSectionHtmlExternally(sec.id, appendHighlightBullet(sec.content_html, saved.id, h.text));
+          if (sec) setSectionHtmlExternally(sec.id, appendHighlightBullet(sec.content_html, saved.id, cleanPdfText(h.text)));
+          // Give React a moment to commit the new bullet before the AI reads the section.
+          if (aiAuto) setTimeout(() => void aiRewrite(sectionId, "concise", [saved.id], { quiet: true }), 120);
         }, land);
       }
       if (paper.status === "to_read" || paper.status === "reading") void patchPaper({ status: "annotated" });
     } catch (e) {
       toast(errorMessage(e), { err: true });
+    }
+  }
+
+  // ---------- AI rewriting of highlight bullets ----------
+  async function aiRewrite(sectionId: string, mode: "concise" | "clean", onlyIds?: string[], opts: { quiet?: boolean } = {}) {
+    const sec = sectionsRef.current.find((s) => s.id === sectionId);
+    if (!sec || !paper) return;
+    let raw = rawHighlightBullets(sec.content_html);
+    if (onlyIds) raw = raw.filter((b) => onlyIds.includes(b.id));
+    if (!raw.length) {
+      if (!opts.quiet) toast("Every highlight here is already rewritten. Edit a bullet by hand to change it.");
+      return;
+    }
+    setAiBusy((b) => ({ ...b, [sectionId]: true }));
+    try {
+      const items = [];
+      for (let i = 0; i < raw.length; i += 20) {
+        items.push(...(await rewriteWithAi(raw.slice(i, i + 20), { mode, section: sec.title, paperTitle: paper.title })));
+      }
+      // Re-read: the user may have typed while the AI was working.
+      const now = sectionsRef.current.find((s) => s.id === sectionId);
+      if (!now) return;
+      const before = now.content_html;
+      setSectionHtmlExternally(sectionId, rewriteHighlightBullets(before, items));
+      if (!opts.quiet)
+        toast(`Rewrote ${items.length} ${items.length === 1 ? "highlight" : "highlights"} in ${sec.title}. Hover a bullet to see the original.`, {
+          action: { label: "Undo", onClick: () => setSectionHtmlExternally(sectionId, before) },
+        });
+    } catch (e) {
+      toast(errorMessage(e), { err: true });
+    } finally {
+      setAiBusy((b) => ({ ...b, [sectionId]: false }));
     }
   }
 
@@ -313,6 +357,7 @@ export function PaperView({ id }: { id: string }) {
         }
       }
       if (e.key === "Escape") {
+        if (!fullPdf) setFocusId(null);
         setFullPdf(false);
         setMerged(false);
         setMenu(false);
@@ -609,7 +654,7 @@ export function PaperView({ id }: { id: string }) {
         </div>
       </header>
 
-      <div className={`paper-body${paper.pdf_path ? "" : " no-pdf"}`}>
+      <div className={`paper-body${paper.pdf_path ? "" : " no-pdf"}${focusId ? " focus-mode" : ""}`}>
         <div className="notes-col" id="main">
           <details className="meta-panel">
             <summary>
@@ -620,6 +665,16 @@ export function PaperView({ id }: { id: string }) {
               <MetaForm paper={paper} onSave={(patch) => void patchPaper(patch)} onRefreshDoi={refreshFromDoi} />
             </div>
           </details>
+          {focusId && (
+            <div className="focus-bar">
+              <span>
+                Enlarged: <strong>{sections.find((s) => s.id === focusId)?.title}</strong>. Highlights you file elsewhere still land in their own sections.
+              </span>
+              <button className="btn ghost small" onClick={() => setFocusId(null)}>
+                Show all sections
+              </button>
+            </div>
+          )}
           {sections.map((s, i) => (
             <SectionEditor
               key={s.id}
@@ -633,6 +688,10 @@ export function PaperView({ id }: { id: string }) {
               onJump={jump}
               isFirst={i === 0}
               isLast={i === sections.length - 1}
+              focused={focusId === s.id}
+              onFocusToggle={(id) => setFocusId((f) => (f === id ? null : id))}
+              onAiRewrite={(id, mode) => void aiRewrite(id, mode)}
+              aiBusy={Boolean(aiBusy[s.id])}
             />
           ))}
           <button className="add-section" onClick={() => void addSection()}>
@@ -652,6 +711,11 @@ export function PaperView({ id }: { id: string }) {
                 onNewSectionHighlight={onNewSectionHighlight}
                 onDeleteHighlight={onDeleteHighlight}
                 onUndo={undo}
+                aiAuto={aiAuto}
+                onAiAuto={(on) => {
+                  setAiAuto(on);
+                  writeAiAuto(on);
+                }}
                 canUndo={undoStack.length > 0}
                 toolbarExtra={
                   <>

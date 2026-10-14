@@ -152,12 +152,26 @@ export function LibraryApp() {
   }, []);
 
   // ?welcome=1 (from "Try it now"): fill an empty library with three classic papers.
-  const welcome = params.get("welcome");
+  const demoStarted = useRef(false);
+  const [welcomeFlag] = useState(() => {
+    try {
+      return typeof window !== "undefined" && sessionStorage.getItem("papercards_welcome") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const welcome = params.get("welcome") || (welcomeFlag ? "1" : null);
   useEffect(() => {
     if (!welcome || papers === null) return;
     const t = setTimeout(() => {
-      setParam("welcome", null);
-      if (papers.length === 0) void loadDemo();
+      try {
+        sessionStorage.removeItem("papercards_welcome");
+      } catch {}
+      if (params.get("welcome")) setParam("welcome", null);
+      if (papers.length === 0 && !demoStarted.current) {
+        demoStarted.current = true;
+        void loadDemo();
+      }
     }, 0);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -635,7 +649,17 @@ export function LibraryApp() {
         </nav>
 
         <main className="main" id="main">
-          {empty ? (
+          {empty && seeding ? (
+            <div className="seeding" aria-busy="true" aria-live="polite">
+              <h1 className="lib-title">Setting up your demo library…</h1>
+              <p className="lib-summary">Five landmark papers, with notes, tags and collections already filled in.</p>
+              <div className="card-grid" style={{ marginTop: 22 }}>
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div key={i} className="skeleton" style={{ animationDelay: `${i * 0.08}s` }} />
+                ))}
+              </div>
+            </div>
+          ) : empty ? (
             <FirstRun
               over={firstDrag}
               onFiles={(files) => setAdding({ files })}

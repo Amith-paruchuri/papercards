@@ -38,8 +38,10 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
       return;
     }
     // The browser client has already written the session cookie, so the server sees it.
+    try {
+      sessionStorage.setItem("papercards_welcome", "1");
+    } catch {}
     router.replace("/?welcome=1");
-    router.refresh();
   }
 
   if (state === "sent") {

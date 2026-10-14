@@ -235,6 +235,24 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const p = url.pathname;
   try {
+    // ---- fake Anthropic Messages API (for "Rewrite with AI" tests; set ANTHROPIC_BASE_URL to this server)
+    if (p === "/v1/messages" && req.method === "POST") {
+      const b = JSON.parse((await body(req)).toString() || "{}");
+      const user = b.messages?.[0]?.content || "";
+      const passages = JSON.parse(user.slice(user.indexOf("[")));
+      const clean = /Keep the author's wording/.test(b.system || "");
+      const items = passages.map((x) => ({ id: x.id, text: clean ? x.text : x.text.split(/\s+/).slice(0, 9).join(" ").replace(/[,.;:]$/, "") + " (AI note)." }));
+      return send(res, 200, { content: [{ type: "text", text: "```json\n" + JSON.stringify(items) + "\n```" }] });
+    }
+    // fake Gemini generateContent (same fake rewrite as above)
+    if (/^\/v1beta\/models\/[^/]+:generateContent$/.test(p) && req.method === "POST") {
+      const b = JSON.parse((await body(req)).toString() || "{}");
+      const user = b.contents?.[0]?.parts?.[0]?.text || "";
+      const passages = JSON.parse(user.slice(user.indexOf("[")));
+      const clean = /Keep the author's wording/.test(b.systemInstruction?.parts?.[0]?.text || "");
+      const items = passages.map((x) => ({ id: x.id, text: clean ? x.text : x.text.split(/\s+/).slice(0, 9).join(" ").replace(/[,.;:]$/, "") + " (Gemini note)." }));
+      return send(res, 200, { candidates: [{ content: { parts: [{ text: JSON.stringify(items) }] } }] });
+    }
     // ---- auth
     if (p === "/auth/v1/.well-known/jwks.json") return send(res, 200, { keys: [] });
     if (p === "/auth/v1/otp") return send(res, 200, {});

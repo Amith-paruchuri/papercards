@@ -22,6 +22,7 @@ PaperCards is a completely separate product from **Choti Copy** and **BAALANCE**
 - Never print, log, echo, or commit real keys. Never paste key values into chat, code, tests, or docs. When a command needs a key, read it from `.env.local` inside the command without echoing it.
 - `.env.local` (and all `.env*.local`) must stay in `.gitignore`.
 - `SUPABASE_SERVICE_ROLE_KEY` is server-only: never import it into client components, never prefix it with `NEXT_PUBLIC_`. (The app currently does not use it at all.)
+- Optional `GEMINI_API_KEY` (Google AI Studio, used first) or `ANTHROPIC_API_KEY` (server-only, never another product's key) turns on "Rewrite with AI" for highlight bullets via `src/app/api/ai/notes/route.ts`; `GEMINI_MODEL` / `ANTHROPIC_MODEL` override the default models (Gemini falls back through stable names if one is retired). Without a key the feature says it is off and quotes stay as highlighted. `PAPERCARDS_AI_BASE_URL` points the route at the e2e mock (do not use `ANTHROPIC_BASE_URL`, which the dev shell may already set).
 
 ### Working rules
 - Inspect before writing code. Propose plans for large changes.

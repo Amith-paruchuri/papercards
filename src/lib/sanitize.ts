@@ -6,7 +6,7 @@ const ALLOWED_TAGS = new Set([
 const ALLOWED_ATTRS: Record<string, Set<string>> = {
   A: new Set(["href", "title"]),
   IMG: new Set(["src", "alt", "width", "height"]),
-  LI: new Set(["data-hl"]),
+  LI: new Set(["data-hl", "data-ai", "title"]),
 };
 
 export function sanitizeHtml(html: string): string {
@@ -81,6 +81,30 @@ export function appendHighlightBullet(html: string, highlightId: string, text: s
     const ul = document.createElement("ul");
     ul.appendChild(li);
     div.appendChild(ul);
+  }
+  return div.innerHTML;
+}
+
+/** Highlight bullets in a section that have not been rewritten by AI yet. */
+export function rawHighlightBullets(html: string): { id: string; text: string }[] {
+  const div = document.createElement("div");
+  div.innerHTML = html || "";
+  return Array.from(div.querySelectorAll<HTMLElement>("li[data-hl]:not([data-ai])"))
+    .map((li) => ({ id: li.getAttribute("data-hl")!, text: (li.textContent || "").trim() }))
+    .filter((b) => b.text);
+}
+
+/** Puts rewritten text into highlight bullets, keeping the PDF link and the original quote as a tooltip. */
+export function rewriteHighlightBullets(html: string, items: { id: string; text: string }[]): string {
+  const div = document.createElement("div");
+  div.innerHTML = html || "";
+  for (const it of items) {
+    div.querySelectorAll<HTMLElement>(`li[data-hl="${CSS.escape(it.id)}"]`).forEach((li) => {
+      const original = (li.getAttribute("title") || "").replace(/^Original: /, "") || (li.textContent || "").trim();
+      li.textContent = it.text;
+      li.setAttribute("data-ai", "1");
+      li.setAttribute("title", `Original: ${original}`);
+    });
   }
   return div.innerHTML;
 }

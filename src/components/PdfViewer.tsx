@@ -4,7 +4,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { loadPdfJs, openPdf } from "@/lib/pdf/pdfjs";
 import type { Highlight, HighlightRect, NoteSection } from "@/lib/types";
-import { ArrowCounterClockwise, ArrowsOutLineHorizontal, Copy, MagnifyingGlassMinus, MagnifyingGlassPlus, Plus, Trash, Columns, File as FileIcon } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, ArrowsOutLineHorizontal, Copy, MagnifyingGlassMinus, MagnifyingGlassPlus, Plus, Trash, Columns, File as FileIcon, Sparkle } from "@phosphor-icons/react";
 
 export interface PdfViewerHandle {
   jumpTo: (h: Highlight) => void;
@@ -16,6 +16,9 @@ type Props = {
   sections: NoteSection[];
   onHighlight: (h: { page: number; text: string; rects: HighlightRect[]; sectionId: string | null; color: string }) => void;
   onNewSectionHighlight: (h: { page: number; text: string; rects: HighlightRect[] }) => void;
+  /** Rewrite new highlight bullets with AI as they land. */
+  aiAuto: boolean;
+  onAiAuto: (on: boolean) => void;
   onDeleteHighlight: (h: Highlight) => void;
   onUndo: () => void;
   canUndo: boolean;
@@ -81,7 +84,7 @@ function toPageRects(rects: DOMRect[], pageBox: DOMRect): HighlightRect[] {
 }
 
 export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(props, ref) {
-  const { data, highlights, sections, onHighlight, onNewSectionHighlight, onDeleteHighlight, onUndo, canUndo, toolbarExtra } = props;
+  const { data, highlights, sections, onHighlight, onNewSectionHighlight, onDeleteHighlight, onUndo, canUndo, toolbarExtra, aiAuto, onAiAuto } = props;
   const stageRef = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<HTMLDivElement>(null);
   const docRef = useRef<PDFDocumentProxy | null>(null);
@@ -392,6 +395,10 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(p
               <Plus size={12} style={{ margin: "0 0 0 0" }} />
               New section…
             </button>
+            <label className="hl-ai-toggle" title="Each new highlight becomes a short note bullet. The exact quote is kept.">
+              <input type="checkbox" checked={aiAuto} onChange={(e) => onAiAuto(e.target.checked)} />
+              <Sparkle size={13} weight="fill" /> Rewrite as a note with AI
+            </label>
             <hr />
             <button onClick={() => save(null, DEFAULT_HL)}>
               <span className="sw" style={{ background: DEFAULT_HL, opacity: 0.6 }} />

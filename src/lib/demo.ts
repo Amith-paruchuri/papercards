@@ -60,36 +60,41 @@ const DEMO: DemoPaper[] = [
 
 const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-/** Creates the demo papers, notes, tags and collections. Returns how many papers were added. */
+/** Creates the demo papers, notes, tags and collections. Returns how many papers were added.
+ *  Shared tags and collections are made first, then every paper is filled in parallel. */
 export async function seedDemoLibrary(): Promise<number> {
   let tags: Tag[] = await listTags();
-  const collections = new Map<string, string>();
-  let added = 0;
-  // Oldest first, so the most interesting card ends up "recently edited".
-  for (const d of [...DEMO].reverse()) {
-    const { notes, tags: tagNames, collection, ...meta } = d;
-    const paper = await createPaper(meta);
-    added++;
-    if (notes) {
-      const sections = await listSections(paper.id);
-      for (const s of sections) {
-        const items = notes[s.title];
-        if (items?.length) await updateSection(s.id, { content_html: `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` });
-      }
-    }
-    for (const name of tagNames ?? []) {
-      const t = await ensureTag(name, tags);
-      if (!tags.some((x) => x.id === t.id)) tags = [...tags, t];
-      await addTagToPapers([paper.id], t.id);
-    }
-    if (collection) {
-      let id = collections.get(collection);
-      if (!id) {
-        id = (await createCollection(collection)).id;
-        collections.set(collection, id);
-      }
-      await addPapersToCollection([paper.id], id);
-    }
+  const tagIds = new Map<string, string>();
+  for (const name of new Set(DEMO.flatMap((d) => d.tags ?? []))) {
+    const t = await ensureTag(name, tags);
+    if (!tags.some((x) => x.id === t.id)) tags = [...tags, t];
+    tagIds.set(name, t.id);
   }
+  const colNames = [...new Set(DEMO.map((d) => d.collection).filter((c): c is string => Boolean(c)))];
+  const cols = await Promise.all(colNames.map((n) => createCollection(n)));
+  const colIds = new Map(colNames.map((n, i) => [n, cols[i].id]));
+
+  const results = await Promise.allSettled(
+    DEMO.map(async ({ notes, tags: names, collection, ...meta }) => {
+      const paper = await createPaper(meta);
+      const work: Promise<unknown>[] = [];
+      if (notes) {
+        work.push(
+          listSections(paper.id).then((sections) =>
+            Promise.all(
+              sections
+                .filter((s) => notes[s.title]?.length)
+                .map((s) => updateSection(s.id, { content_html: `<ul>${notes[s.title].map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` }))
+            )
+          )
+        );
+      }
+      for (const n of names ?? []) work.push(addTagToPapers([paper.id], tagIds.get(n)!));
+      if (collection) work.push(addPapersToCollection([paper.id], colIds.get(collection)!));
+      await Promise.all(work);
+    })
+  );
+  const added = results.filter((r) => r.status === "fulfilled").length;
+  if (!added) throw (results[0] as PromiseRejectedResult).reason;
   return added;
 }

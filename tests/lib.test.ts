@@ -83,3 +83,25 @@ test("parseAuthorList understands common formats", () => {
   assert.deepEqual(parseAuthorList("Smith, Jane and Doe, John"), [{ family: "Smith", given: "Jane" }, { family: "Doe", given: "John" }]);
   assert.equal(citationLabel({ authors: parseAuthorList("Smith J, Doe A, Roe B"), year: 2024 }), "Smith et al. 2024");
 });
+
+import { cleanPdfText } from "../src/lib/clean-text.ts";
+import { parseReply, validateRequest, buildPrompt } from "../src/lib/ai-notes.ts";
+
+test("cleanPdfText repairs PDF copy damage without breaking real hyphens", () => {
+  assert.equal(cleanPdfText("whole slide im-\nages are giga- pixel ﬁles [12]  ."), "Whole slide images are gigapixel files.");
+  assert.equal(cleanPdfText("COVID-19 and T- and B-cell counts [3, 4] rose"), "COVID-19 and T- and B-cell counts rose");
+  assert.equal(cleanPdfText("  ( see Fig. 2 )\nfor details"), "(see Fig. 2) for details");
+});
+
+test("AI reply parser tolerates fences and drops unknown ids", () => {
+  const reply = 'Here you go:\n```json\n[{"id":"a","text":"- AUC 0.98 on held-out slides."},{"id":"zz","text":"x"}]\n```';
+  assert.deepEqual(parseReply(reply, ["a", "b"]), [{ id: "a", text: "AUC 0.98 on held-out slides." }]);
+  assert.throws(() => parseReply("no json", ["a"]));
+});
+
+test("AI request validation caps size and defaults the mode", () => {
+  assert.equal(typeof validateRequest({ passages: [] }), "string");
+  const ok = validateRequest({ passages: [{ id: "a", text: "x".repeat(5000) }] });
+  assert.ok(typeof ok !== "string" && ok.mode === "concise" && ok.passages[0].text.length === 4000);
+  assert.match(buildPrompt({ mode: "clean", passages: [{ id: "a", text: "t" }] }).system, /Keep the author's wording/);
+});

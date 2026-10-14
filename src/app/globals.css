@@ -371,7 +371,10 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .vt-paper .pdf-col { view-transition-name: pc-pdf; }
 ::view-transition-group(pc-card), ::view-transition-group(pc-title) { animation-duration: 0.5s; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
 ::view-transition-old(pc-title), ::view-transition-new(pc-title) { height: 100%; width: auto; object-fit: none; object-position: left top; }
-::view-transition-old(pc-card), ::view-transition-new(pc-card) { height: 100%; width: 100%; object-fit: fill; }
+/* the card's own contents fade out fast so nothing stretches; the box itself does the morph */
+::view-transition-old(pc-card) { animation: vtOut 0.14s ease both; height: 100%; width: 100%; object-fit: cover; object-position: left top; }
+::view-transition-new(pc-card) { animation: vtIn 0.3s 0.12s ease both; height: 100%; width: 100%; object-fit: cover; object-position: left top; }
+::view-transition-group(pc-card) { background: var(--surface); border-radius: var(--r-surface); box-shadow: var(--shadow-lg); overflow: hidden; }
 ::view-transition-new(pc-notes) { animation: vtRise 0.5s 0.12s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 ::view-transition-new(pc-pdf) { animation: vtSlide 0.55s 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 ::view-transition-old(pc-notes), ::view-transition-old(pc-pdf) { animation: vtOut 0.2s ease both; }
@@ -624,6 +627,36 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 @keyframes inkIn { 0% { background: color-mix(in srgb, var(--sec, var(--accent)) 38%, transparent); } 100% { background: transparent; } }
 .rich h4 { font: 600 14px/1.4 var(--font-ui); margin: 10px 0 4px; }
 .rich img { max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); display: block; margin: 8px 0; }
+/* section header: AI and enlarge stay visible; the rest appear on hover */
+.section-head .ai-btn, .section-head [aria-pressed] { opacity: 0.75; }
+.section-head .ai-btn:not(:disabled):hover { color: var(--accent); }
+.section-head .ai-btn:disabled { opacity: 0.3; }
+.section-head .ai-btn.busy { opacity: 1; color: var(--accent); }
+.section-head .icon-btn.on { opacity: 1; background: var(--accent-wash); color: var(--accent); }
+.section-head .menu-wrap .menu { min-width: 270px; }
+.ai-menu svg { color: var(--accent) !important; }
+/* a bullet rewritten by AI: same as a quote bullet, with a small spark so you can tell */
+.rich li[data-ai]::after { content: "✦"; margin-left: 6px; font-size: 10px; color: var(--accent); opacity: 0.55; vertical-align: 1px; }
+.hl-ai-toggle { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 6px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.hl-ai-toggle:hover { background: var(--surface-2); color: var(--ink); }
+.hl-ai-toggle input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
+.hl-ai-toggle svg { color: var(--accent); }
+
+/* enlarged section: one note box fills the notes column next to the PDF */
+.paper-body.focus-mode { grid-template-columns: minmax(380px, 1.05fr) minmax(400px, 1fr); }
+.paper-body.focus-mode.no-pdf { grid-template-columns: 1fr; }
+.focus-mode .notes-col > .meta-panel, .focus-mode .notes-col > .add-section, .focus-mode .section-box:not(.focused) { display: none; }
+.focus-mode .section-box.focused { animation: rise 0.35s var(--ease) both; }
+.focus-mode .section-box.focused .section-title { font-size: 18px !important; }
+.focus-mode .section-box.focused .editor-toolbar { max-height: 40px; padding: 4px; opacity: 1; border-bottom-color: var(--line); }
+.focus-mode .section-box.focused .rich { min-height: calc(100dvh - 330px); max-height: none; font-size: 15.5px; line-height: 1.7; padding: 16px 20px; }
+.focus-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; padding: 8px 8px 8px 14px; font-size: 13px; color: var(--ink-2);
+  background: var(--accent-wash); border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: var(--r-surface);
+}
+.focus-bar span { flex: 1 1 260px; }
+.focus-bar strong { color: var(--ink); }
+
 .add-section { display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px; margin-left: 14px; border: 1px dashed var(--line-strong); border-radius: var(--r-surface); background: none; color: var(--ink-2); cursor: pointer; font-size: 13.5px; }
 .add-section:hover { border-color: var(--accent); color: var(--accent); }
 
