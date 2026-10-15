@@ -37,9 +37,9 @@ export async function POST(request: NextRequest) {
 const BASE = () => process.env.PAPERCARDS_AI_BASE_URL;
 type Result = { text: string } | { status: number };
 
-// Google AI Studio (Gemini). Tries the configured model, then stable fallbacks if a name is retired.
+// Google AI Studio (Gemini). Tries the configured model, then other Flash models if one is retired or overloaded.
 async function callGemini(key: string, system: string, user: string, maxTokens: number): Promise<Result> {
-  const models = [...new Set([process.env.GEMINI_MODEL, "gemini-3.6-flash", "gemini-flash-latest", "gemini-2.5-flash"].filter((m): m is string => Boolean(m)))];
+  const models = [...new Set([process.env.GEMINI_MODEL, "gemini-3.6-flash", "gemini-flash-latest", "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-2.5-flash"].filter((m): m is string => Boolean(m)))];
   let last = 502;
   for (const model of models) {
     const res = await fetch(`${BASE() || "https://generativelanguage.googleapis.com"}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
@@ -60,7 +60,9 @@ async function callGemini(key: string, system: string, user: string, maxTokens: 
     }
     last = res.status;
     console.error("AI notes: Gemini", model, "returned", res.status, (await res.text().catch(() => "")).slice(0, 300));
-    if (res.status !== 404) break; // only an unknown model name is worth retrying with another
+    // A retired name (404) or a busy/overloaded model (429, 5xx) is worth trying on the next model.
+    // A bad key or bad request (400, 401, 403) will fail the same way everywhere, so stop.
+    if (![404, 429, 500, 502, 503, 504].includes(res.status)) break;
   }
   return { status: last };
 }

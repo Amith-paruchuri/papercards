@@ -246,6 +246,7 @@ const server = http.createServer(async (req, res) => {
     }
     // fake Gemini generateContent (same fake rewrite as above)
     if (/^\/v1beta\/models\/[^/]+:generateContent$/.test(p) && req.method === "POST") {
+      if (process.env.MOCK_GEMINI_BUSY && p.includes(process.env.MOCK_GEMINI_BUSY)) return send(res, 503, { error: { code: 503, status: "UNAVAILABLE", message: "high demand" } });
       const b = JSON.parse((await body(req)).toString() || "{}");
       const user = b.contents?.[0]?.parts?.[0]?.text || "";
       const passages = JSON.parse(user.slice(user.indexOf("[")));
