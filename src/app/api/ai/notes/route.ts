@@ -37,25 +37,44 @@ export async function POST(request: NextRequest) {
 const BASE = () => process.env.PAPERCARDS_AI_BASE_URL;
 type Result = { text: string } | { status: number };
 
-// Google AI Studio (Gemini). Tries the configured model, then other Flash models if one is retired or overloaded.
+// Google AI Studio (Gemini). Flash-Lite first (fast, rarely overloaded, plenty for one-line notes), then the
+// bigger Flash models. Each model gets a short time limit; busy, retired or slow models are skipped.
 async function callGemini(key: string, system: string, user: string, maxTokens: number): Promise<Result> {
-  const models = [...new Set([process.env.GEMINI_MODEL, "gemini-3.6-flash", "gemini-flash-latest", "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-2.5-flash"].filter((m): m is string => Boolean(m)))];
+  const models = [
+    ...new Set(
+      [process.env.GEMINI_MODEL, "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.6-flash", "gemini-flash-latest", "gemini-2.5-flash"].filter(
+        (m): m is string => Boolean(m)
+      )
+    ),
+  ];
+  const deadline = Date.now() + 50000;
   let last = 502;
   for (const model of models) {
-    const res = await fetch(`${BASE() || "https://generativelanguage.googleapis.com"}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: "user", parts: [{ text: user }] }],
-        // Newer Gemini models spend part of the output budget on thinking, so leave generous room.
-        generationConfig: { temperature: 0.2, maxOutputTokens: Math.max(maxTokens * 4, 4096), responseMimeType: "application/json" },
-      }),
-      signal: AbortSignal.timeout(30000),
-      cache: "no-store",
-    });
+    const left = deadline - Date.now();
+    if (left < 3000) break;
+    const t0 = Date.now();
+    let res: Response;
+    try {
+      res = await fetch(`${BASE() || "https://generativelanguage.googleapis.com"}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": key },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts: [{ text: user }] }],
+          // Newer Gemini models spend part of the output budget on thinking, so leave generous room.
+          generationConfig: { temperature: 0.2, maxOutputTokens: Math.max(maxTokens * 4, 4096), responseMimeType: "application/json" },
+        }),
+        signal: AbortSignal.timeout(Math.min(15000, left)),
+        cache: "no-store",
+      });
+    } catch (e) {
+      console.error("AI notes: Gemini", model, "gave no answer in time", e instanceof Error ? e.name : e);
+      last = 504;
+      continue;
+    }
     if (res.ok) {
       const body = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+      console.info("AI notes: Gemini", model, "answered in", Date.now() - t0, "ms");
       return { text: (body.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("") };
     }
     last = res.status;
