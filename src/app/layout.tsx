@@ -11,7 +11,8 @@ import { CommandPalette } from "@/components/CommandPalette";
 export const metadata: Metadata = {
   title: { default: "PaperCards", template: "%s | PaperCards" },
   description: "Your research brain: a reference and PDF manager for researchers.",
-  icons: { icon: "/icon.svg" },
+  icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }, { url: "/icon-192.png", sizes: "192x192" }], apple: "/icon-180.png" },
+  manifest: "/manifest.webmanifest",
 };
 
 export const viewport: Viewport = {

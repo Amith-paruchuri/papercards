@@ -202,9 +202,10 @@ function uidFrom(req) {
   }
 }
 const users = new Map();
+const feedback = [];
 function userJson(uid) {
   const u = users.get(uid);
-  return { id: uid, aud: "authenticated", role: "authenticated", email: u?.email ?? "", is_anonymous: Boolean(u?.anon), app_metadata: { provider: u?.anon ? "anonymous" : "email" }, user_metadata: {}, created_at: "2026-10-01T00:00:00Z" };
+  return { id: uid, aud: "authenticated", role: "authenticated", email: u?.email ?? "", is_anonymous: Boolean(u?.anon), identities: u?.anon ? [] : [{ provider: "email" }], app_metadata: { provider: u?.anon ? "anonymous" : "email" }, user_metadata: {}, created_at: "2026-10-01T00:00:00Z" };
 }
 export function sessionFor(uid) {
   const u = users.get(uid);
@@ -246,8 +247,12 @@ const server = http.createServer(async (req, res) => {
       const items = passages.map((x) => ({ id: x.id, text: clean ? x.text : x.text.split(/\s+/).slice(0, 9).join(" ").replace(/[,.;:]$/, "") + " (AI note)." }));
       return send(res, 200, { content: [{ type: "text", text: "```json\n" + JSON.stringify(items) + "\n```" }] });
     }
+    if (p === "/__last-gemini-key") return send(res, 200, { key: globalThis.lastGeminiKey || null });
     // fake Gemini generateContent (same fake rewrite as above)
     if (/^\/v1beta\/models\/[^/]+:generateContent$/.test(p) && req.method === "POST") {
+      const gkey = String(req.headers["x-goog-api-key"] || "");
+      globalThis.lastGeminiKey = gkey.slice(0, 8);
+      if (/BADKEY/.test(gkey)) return send(res, 400, { error: { code: 400, status: "INVALID_ARGUMENT", message: "API key not valid." } });
       if (process.env.MOCK_GEMINI_BUSY && p.includes(process.env.MOCK_GEMINI_BUSY)) return send(res, 503, { error: { code: 503, status: "UNAVAILABLE", message: "high demand" } });
       const b = JSON.parse((await body(req)).toString() || "{}");
       const user = b.contents?.[0]?.parts?.[0]?.text || "";
@@ -293,18 +298,49 @@ const server = http.createServer(async (req, res) => {
     // ---- auth
     if (p === "/auth/v1/.well-known/jwks.json") return send(res, 200, { keys: [] });
     if (p === "/auth/v1/otp") return send(res, 200, {});
+    if (p === "/auth/v1/settings") return send(res, 200, { external: { email: true, google: process.env.MOCK_GOOGLE === "1", anonymous_users: true } });
     if (p === "/auth/v1/signup" && req.method === "POST") {
-      // Anonymous sign-in (no email in the body).
       const b = JSON.parse((await body(req)).toString() || "{}");
-      if (b.email) return send(res, 400, { msg: "mock supports anonymous sign-up only" });
+      if (b.email) {
+        // Email + password sign-up with "Confirm email" on: no session until the 6-digit code (always 123456 here).
+        const found = [...users.entries()].find(([, u]) => u.email === b.email);
+        if (found) return send(res, 200, { ...userJson(found[0]), identities: [] });
+        const nid = randomUUID();
+        users.set(nid, { email: b.email, password: b.password, confirmed: false });
+        db.profiles.push({ id: nid, display_name: b.email.split("@")[0], created_at: now(), updated_at: now() });
+        return send(res, 200, { ...userJson(nid), identities: [{ provider: "email" }] });
+      }
       const nid = randomUUID();
       users.set(nid, { email: undefined, anon: true });
       return send(res, 200, sessionFor(nid));
     }
     if (p === "/auth/v1/logout") return send(res, 204);
-    if (p === "/auth/v1/user") {
+    if (p === "/auth/v1/user" && req.method === "GET") {
       const uid = uidFrom(req);
       return uid && users.has(uid) ? send(res, 200, userJson(uid)) : send(res, 401, { code: 401, msg: "invalid JWT" });
+    }
+    if (p === "/auth/v1/verify" && req.method === "POST") {
+      const b = JSON.parse((await body(req)).toString() || "{}");
+      const found = [...users.entries()].find(([, u]) => u.email === b.email);
+      if (!found || b.token !== "123456") return send(res, 403, { code: "otp_expired", msg: "Token has expired or is invalid" });
+      found[1].confirmed = true;
+      return send(res, 200, sessionFor(found[0]));
+    }
+    if (p === "/auth/v1/resend" || p === "/auth/v1/recover") return send(res, 200, {});
+    if (p === "/auth/v1/user" && req.method === "PUT") {
+      const uid = uidFrom(req);
+      if (!uid || !users.has(uid)) return send(res, 401, { msg: "invalid JWT" });
+      const b = JSON.parse((await body(req)).toString() || "{}");
+      if (b.password) users.get(uid).password = b.password;
+      if (b.email) users.get(uid).email = b.email;
+      return send(res, 200, userJson(uid));
+    }
+    if (p === "/auth/v1/token" && url.searchParams.get("grant_type") === "password") {
+      const b = JSON.parse((await body(req)).toString() || "{}");
+      const found = [...users.entries()].find(([, u]) => u.email === b.email && u.password && u.password === b.password);
+      if (!found) return send(res, 400, { code: "invalid_credentials", error_code: "invalid_credentials", msg: "Invalid login credentials" });
+      if (found[1].confirmed === false) return send(res, 400, { code: "email_not_confirmed", error_code: "email_not_confirmed", msg: "Email not confirmed" });
+      return send(res, 200, sessionFor(found[0]));
     }
     if (p === "/auth/v1/token") {
       const b = JSON.parse((await body(req)).toString() || "{}");
@@ -339,6 +375,32 @@ const server = http.createServer(async (req, res) => {
       const f = files.get(`${bucket}/${path}`);
       return f ? send(res, 200, f, { "Content-Type": "application/pdf" }) : send(res, 404, { message: "Object not found" });
     }
+
+    // ---- feedback: anyone may insert; only admins (demo user here) may read, triage or delete
+    if (p === "/rest/v1/feedback") {
+      const admin = uid && users.get(uid)?.email === "demo@papercards.test";
+      if (req.method === "POST") {
+        const r = JSON.parse((await body(req)).toString() || "{}");
+        if (!r.message || r.message.length < 3 || r.status || r.admin_note) return send(res, 403, { code: "42501", message: "new row violates row-level security policy" });
+        feedback.unshift({ id: randomUUID(), created_at: now(), updated_at: now(), status: "new", admin_note: null, user_id: uid ?? null, rating: null, name: null, email: null, role: null, page: null, user_agent: null, ...r });
+        return send(res, 201, "");
+      }
+      if (!admin) return req.method === "GET" ? send(res, 200, [], { "Content-Range": "*/0" }) : send(res, 204);
+      const idEq = (url.searchParams.get("id") || "").replace(/^eq\./, "");
+      if (req.method === "PATCH") {
+        const patch = JSON.parse((await body(req)).toString() || "{}");
+        const row = feedback.find((f) => f.id === idEq);
+        if (row) Object.assign(row, patch, { updated_at: now() });
+        return /return=representation/.test(req.headers.prefer || "") ? send(res, 200, row ? [row] : []) : send(res, 204);
+      }
+      if (req.method === "DELETE") {
+        const i = feedback.findIndex((f) => f.id === idEq);
+        if (i >= 0) feedback.splice(i, 1);
+        return send(res, 204);
+      }
+      return send(res, 200, feedback, { "Content-Range": `0-${Math.max(feedback.length - 1, 0)}/${feedback.length}` });
+    }
+    if (p === "/rest/v1/rpc/is_feedback_admin") return send(res, 200, Boolean(uid && users.get(uid)?.email === "demo@papercards.test"));
 
     // ---- rest
     const m = p.match(/^\/rest\/v1\/(\w+)$/);

@@ -7,12 +7,28 @@ type Result = { text: string } | { status: number };
 /** "fast": Flash-Lite first (one-line notes). "smart": full Flash first (organising a whole library). */
 export type Prefer = "fast" | "smart";
 
-export function aiConfigured(): boolean {
-  return Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.ANTHROPIC_API_KEY);
+export function aiConfigured(ownKey?: string | null): boolean {
+  return Boolean(ownKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.ANTHROPIC_API_KEY);
 }
 
-/** Runs one prompt and returns the model's text, or the HTTP status of the last failure. */
-export async function generate(system: string, user: string, maxTokens: number, prefer: Prefer = "fast"): Promise<Result> {
+/** A researcher's own Google AI Studio key, sent per request from their browser in this header.
+ *  It is used for that one call and never stored or logged on the server. */
+export const OWN_KEY_HEADER = "x-papercards-ai-key";
+export function ownKeyFrom(headers: Headers): string | null {
+  const k = headers.get(OWN_KEY_HEADER)?.trim();
+  return k && /^[A-Za-z0-9_\-]{20,120}$/.test(k) ? k : null;
+}
+/** Error text for a failed call: a rejected own key gets its own message so people know what to fix. */
+export function aiErrorMessage(status: number, ownKey: string | null): { error: string; status: number } {
+  if (ownKey && [400, 401, 403].includes(status)) return { error: "Google rejected your own API key. Check it under AI settings, or remove it to use PaperCards' AI.", status: 400 };
+  if (status === 429) return { error: ownKey ? "Your own API key has hit its rate limit. Try again in a minute." : "The AI is busy right now. Try again in a minute.", status: 429 };
+  return { error: "The AI service didn't answer. Try again in a moment.", status: 502 };
+}
+
+/** Runs one prompt and returns the model's text, or the HTTP status of the last failure.
+ *  With `ownKey` the call runs on the researcher's own Gemini key instead of the site's. */
+export async function generate(system: string, user: string, maxTokens: number, prefer: Prefer = "fast", ownKey?: string | null): Promise<Result> {
+  if (ownKey) return callGemini(ownKey, system, user, maxTokens, prefer);
   const gemini = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (gemini) return callGemini(gemini, system, user, maxTokens, prefer);
   const anthropic = process.env.ANTHROPIC_API_KEY;

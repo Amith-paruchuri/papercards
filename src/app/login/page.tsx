@@ -3,12 +3,14 @@ import { isConfigured } from "@/lib/supabase/env";
 import { LoginForm } from "./LoginForm";
 import { Brand } from "@/components/Logo";
 import { AuthStage } from "@/components/AuthStage";
+import { googleSignInEnabled } from "@/lib/supabase/auth-settings";
 
 export const metadata: Metadata = { title: "Sign in" };
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; error?: string }> }) {
-  const { next, error } = await searchParams;
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; error?: string; mode?: string }> }) {
+  const { next, error, mode } = await searchParams;
   const configured = isConfigured();
+  const google = configured ? await googleSignInEnabled() : false;
   const forbidden = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").includes("nyxivqlpikoffdopfmei");
   return (
     <main className="auth" id="main">
@@ -24,12 +26,15 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <li>Notes per section, from your highlights</li>
           <li>BibTeX, RIS and Excel export</li>
           <li>Private to your account</li>
+          <li>
+            <a href="/feedback">Share feedback</a>
+          </li>
         </ul>
       </section>
       <section className="auth-panel">
         <div className="auth-form">
-          <h2>Sign in</h2>
-          <p>We&apos;ll email you a link. No password to remember.</p>
+          <h2>{mode === "signup" ? "Create your library" : "Welcome to PaperCards"}</h2>
+          <p>Sign in or create a free account. Your papers and notes stay private to you.</p>
           {forbidden ? (
             <div className="notice" role="alert">
               <strong>Stopped.</strong> <code>.env.local</code> points at another product&apos;s Supabase project. PaperCards needs its own.
@@ -40,7 +45,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
               <code>npm run dev</code>.
             </div>
           ) : (
-            <LoginForm next={next} initialError={error} />
+            <LoginForm next={next} initialError={error} googleEnabled={google} initialMode={mode === "signup" ? "signup" : mode === "reset" ? "reset" : "signin"} />
           )}
         </div>
       </section>

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { buildDeckPrompt, parseDeckReply, validateDeckRequest } from "@/lib/ai-decks";
-import { aiConfigured, generate } from "@/lib/ai-server";
+import { aiConfigured, aiErrorMessage, generate, ownKeyFrom } from "@/lib/ai-server";
 
 // Organising a whole library takes longer than rewriting one highlight.
 export const maxDuration = 60;
@@ -12,16 +12,18 @@ export async function POST(request: NextRequest) {
   const supabase = await supabaseServer();
   const { data: auth } = await supabase.auth.getClaims();
   if (!auth?.claims?.sub) return NextResponse.json({ error: "Sign in to organise with AI." }, { status: 401 });
-  if (!aiConfigured()) return NextResponse.json({ error: "AI isn't switched on for this site yet." }, { status: 503 });
+  const ownKey = ownKeyFrom(request.headers);
+  if (!aiConfigured(ownKey)) return NextResponse.json({ error: "AI isn't switched on for this site yet." }, { status: 503 });
 
   const req = validateDeckRequest(await request.json().catch(() => null));
   if (typeof req === "string") return NextResponse.json({ error: req }, { status: 400 });
 
   const { system, user } = buildDeckPrompt(req);
   try {
-    const r = await generate(system, user, Math.min(8000, 600 + req.papers.length * 40), "smart");
+    const r = await generate(system, user, Math.min(8000, 600 + req.papers.length * 40), "smart", ownKey);
     if ("status" in r) {
-      return NextResponse.json({ error: r.status === 429 ? "The AI is busy right now. Try again in a minute." : "The AI service didn't answer. Try again in a moment." }, { status: r.status === 429 ? 429 : 502 });
+      const { error, status } = aiErrorMessage(r.status, ownKey);
+      return NextResponse.json({ error }, { status });
     }
     const decks = parseDeckReply(r.text, req);
     if (!decks.length) return NextResponse.json({ error: "Every paper already sits in a deck that fits. Add new papers, or choose My whole library, and try again." }, { status: 422 });

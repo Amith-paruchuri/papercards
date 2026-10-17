@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import { ArrowsClockwise, CircleNotch, Sparkle, X } from "@phosphor-icons/react";
 import { errorMessage } from "./Toast";
+import { aiHeaders } from "@/lib/ai-client";
 import { addPapersToCollection, createCollection, deleteCollection, removePaperFromCollection } from "@/lib/data";
 import { DECK_HUES } from "@/lib/graph-model";
 import { byline } from "@/lib/graph-model";
@@ -53,7 +54,7 @@ export function OrganiseModal({
         })),
         decks: [...deckRef].map(([ref, c]) => ({ ref, name: c.name, size: papers.filter((p) => p.collection_papers.some((m) => m.collection_id === c.id)).length })),
       };
-      const res = await fetch("/api/ai/decks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const res = await fetch("/api/ai/decks", { method: "POST", headers: aiHeaders(), body: JSON.stringify(body) });
       const json = (await res.json().catch(() => ({}))) as { decks?: DeckProposal[]; error?: string };
       if (!res.ok || !json.decks) throw new Error(json.error || "The AI couldn't organise these papers. Try again.");
       setDrafts(json.decks.map((d) => ({ ...d, include: true, picked: new Set(d.paperRefs) })));

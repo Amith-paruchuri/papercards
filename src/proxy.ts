@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/auth/"];
+const PUBLIC_PATHS = ["/login", "/auth/", "/feedback", "/api/feedback", "/terms", "/privacy"];
 const FORBIDDEN_REFS = ["nyxivqlpikoffdopfmei"]; // Rule 1: Choti Copy. Never connect.
 
 export async function proxy(request: NextRequest) {
@@ -40,12 +40,12 @@ export async function proxy(request: NextRequest) {
     if (path !== "/") login.searchParams.set("next", path + request.nextUrl.search);
     return NextResponse.redirect(login);
   }
-  if (signedIn && path === "/login") {
+  if (signedIn && path === "/login" && !data?.claims?.is_anonymous) {
     return NextResponse.redirect(new URL("/", request.url));
   }
   return response;
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|pdf.worker.min.mjs|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|pdf.worker.min.mjs|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
 };

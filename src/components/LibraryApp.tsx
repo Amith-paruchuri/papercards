@@ -34,6 +34,8 @@ import {
   Trash,
   X,
   Link as LinkIcon,
+  UserCircle,
+  ChatCircleDots,
 } from "@phosphor-icons/react";
 import { Brand, OrigamiMark } from "./Logo";
 import { AddPaperModal } from "./AddPaperModal";
@@ -43,6 +45,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { seedDemoLibrary } from "@/lib/demo";
 import { PublicationsModal } from "./PublicationsModal";
 import { OrganiseModal } from "./OrganiseModal";
+import { AiSettingsModal } from "./AiSettingsModal";
 import { errorMessage, useToast } from "./Toast";
 import { ThemeSelect } from "./ThemeSelect";
 import { COMMAND_EVENT, type Command } from "./CommandPalette";
@@ -116,6 +119,17 @@ export function LibraryApp() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [pubModal, setPubModal] = useState<null | { autoSync?: boolean }>(null);
   const [organising, setOrganising] = useState(false);
+  const [aiSettings, setAiSettings] = useState(false);
+  const [isFeedbackAdmin, setIsFeedbackAdmin] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void supabaseBrowser()
+      .rpc("is_feedback_admin")
+      .then(({ data }) => live && setIsFeedbackAdmin(data === true));
+    return () => {
+      live = false;
+    };
+  }, []);
   // Reading-status rows fold into one expandable row; the choice is remembered on this device.
   const [statusOpen, setStatusOpen] = useState(false);
   useEffect(() => {
@@ -652,6 +666,20 @@ export function LibraryApp() {
                   <DownloadSimple size={16} /> Spreadsheet for Excel
                 </button>
                 <hr />
+                <button role="menuitem" onClick={() => (setAiSettings(true), setMenu(false))}>
+                  <Sparkle size={16} /> AI settings
+                </button>
+                <Link href="/account" role="menuitem">
+                  <UserCircle size={16} /> Account and password
+                </Link>
+                <Link href="/feedback?product=papercards" role="menuitem">
+                  <ChatCircleDots size={16} /> Share feedback
+                </Link>
+                {isFeedbackAdmin && (
+                  <Link href="/admin/feedback" role="menuitem">
+                    <Tray size={16} /> Feedback inbox
+                  </Link>
+                )}
                 <Link href="/import" role="menuitem">
                   <ArrowSquareIn size={16} /> Import from the old Paper Cards
                 </Link>
@@ -1201,6 +1229,16 @@ export function LibraryApp() {
         />
       )}
 
+      {aiSettings && (
+        <AiSettingsModal
+          onClose={() => setAiSettings(false)}
+          onDone={(msg) => {
+            setAiSettings(false);
+            toast(msg);
+          }}
+        />
+      )}
+
       {pubModal && (
         <PublicationsModal
           profile={profile}
@@ -1271,7 +1309,10 @@ function GuestBanner() {
   async function keep(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    const { error } = await supabaseBrowser().auth.updateUser({ email: email.trim() });
+    const { error } = await supabaseBrowser().auth.updateUser(
+      { email: email.trim() },
+      { emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent("/account?kept=1")}` }
+    );
     setBusy(false);
     if (error) toast(`${error.message} Check the address and try again.`, { err: true });
     else {
