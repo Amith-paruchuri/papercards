@@ -4,7 +4,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { loadPdfJs, openPdf } from "@/lib/pdf/pdfjs";
 import type { Highlight, HighlightRect, NoteSection } from "@/lib/types";
-import { ArrowCounterClockwise, ArrowsOutLineHorizontal, Copy, MagnifyingGlassMinus, MagnifyingGlassPlus, Plus, Trash, Columns, File as FileIcon, Sparkle } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, ArrowsOutLineHorizontal, Copy, MagnifyingGlassMinus, MagnifyingGlassPlus, Plus, Trash, Columns, File as FileIcon, Sparkle, PencilSimple } from "@phosphor-icons/react";
 
 export interface PdfViewerHandle {
   jumpTo: (h: Highlight) => void;
@@ -14,8 +14,9 @@ type Props = {
   data: ArrayBuffer;
   highlights: Highlight[];
   sections: NoteSection[];
-  onHighlight: (h: { page: number; text: string; rects: HighlightRect[]; sectionId: string | null; color: string }) => void;
-  onNewSectionHighlight: (h: { page: number; text: string; rects: HighlightRect[] }) => void;
+  /** `note`: the reader's own thought, added under the quote. `ask`: an instruction for the AI about this passage. */
+  onHighlight: (h: { page: number; text: string; rects: HighlightRect[]; sectionId: string | null; color: string; note?: string; ask?: string }) => void;
+  onNewSectionHighlight: (h: { page: number; text: string; rects: HighlightRect[]; note?: string; ask?: string }) => void;
   /** Rewrite new highlight bullets with AI as they land. */
   aiAuto: boolean;
   onAiAuto: (on: boolean) => void;
@@ -94,6 +95,13 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(p
   const [error, setError] = useState<string | null>(null);
   const [current, setCurrent] = useState(1);
   const [menu, setMenu] = useState<MenuState>(null);
+  // The box at the top of the highlight menu: the reader's own thought, or an instruction for the AI.
+  const [extraMode, setExtraMode] = useState<"note" | "ask">("note");
+  const [extra, setExtra] = useState("");
+  const extras = () => {
+    const t = extra.trim();
+    return t ? (extraMode === "note" ? { note: t } : { ask: t }) : {};
+  };
   const [flashId, setFlashId] = useState<string | null>(null);
   const rendered = useRef<Map<number, number>>(new Map()); // page -> scale it was rendered at
   const renderTokens = useRef<Map<number, { cancel: () => void }>>(new Map());
@@ -242,6 +250,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(p
     if (!rects.length) return;
     const last = rects[rects.length - 1];
     const stageBox = stageRef.current.getBoundingClientRect();
+    setExtra(""); // a new passage starts with an empty thought box
     setMenu({
       kind: "select",
       page: Number(pageEl.dataset.page),
@@ -262,9 +271,10 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(p
       from = new DOMRect(st.left + menu.x - stageRef.current.scrollLeft - 160, st.top + menu.y - stageRef.current.scrollTop - 30, 200, 20);
     }
     if (from && sectionId) flyToNotes(menu.text, from, document.querySelector<HTMLElement>(`.section-box[data-section="${sectionId}"] .editor`), color);
-    onHighlight({ page: menu.page, text: menu.text, rects: menu.rects, sectionId, color });
+    onHighlight({ page: menu.page, text: menu.text, rects: menu.rects, sectionId, color, ...extras() });
     window.getSelection()?.removeAllRanges();
     setMenu(null);
+    setExtra("");
   }
 
   function zoom(next: number) {
@@ -376,8 +386,30 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(p
           })}
         </div>
         {menu?.kind === "select" && (
-          <div className="hl-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.preventDefault()}>
-            <div className="lbl">Add to your notes</div>
+          <div
+            className="hl-menu"
+            style={{ left: menu.x, top: menu.y }}
+            // keep the PDF selection alive, except when clicking into the thought box
+            onMouseDown={(e) => !(e.target as HTMLElement).closest("textarea") && e.preventDefault()}
+          >
+            <div className="hl-extra">
+              <div className="hl-extra-tabs" role="tablist" aria-label="Add to this highlight">
+                <button role="tab" aria-selected={extraMode === "note"} className={extraMode === "note" ? "on" : ""} onClick={() => setExtraMode("note")}>
+                  <PencilSimple size={12} /> My thought
+                </button>
+                <button role="tab" aria-selected={extraMode === "ask"} className={extraMode === "ask" ? "on" : ""} onClick={() => setExtraMode("ask")}>
+                  <Sparkle size={12} weight="fill" /> Ask AI
+                </button>
+              </div>
+              <textarea
+                rows={2}
+                value={extra}
+                onChange={(e) => setExtra(e.target.value)}
+                aria-label={extraMode === "note" ? "Your own thought about this passage" : "What should the AI do with this passage?"}
+                placeholder={extraMode === "note" ? "Your own insight, question or critique (optional)…" : "e.g. explain the statistics simply, or how this compares to our cohort…"}
+              />
+            </div>
+            <div className="lbl">{extra.trim() ? "Save with it to" : "Add to your notes"}</div>
             {sections.map((s) => (
               <button key={s.id} onClick={() => save(s.id, s.color || DEFAULT_HL)}>
                 <span className="sw" style={{ background: s.color || DEFAULT_HL }} />
@@ -387,9 +419,10 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(p
             <button
               onClick={() => {
                 if (menu.kind !== "select") return;
-                onNewSectionHighlight({ page: menu.page, text: menu.text, rects: menu.rects });
+                onNewSectionHighlight({ page: menu.page, text: menu.text, rects: menu.rects, ...extras() });
                 window.getSelection()?.removeAllRanges();
                 setMenu(null);
+                setExtra("");
               }}
             >
               <Plus size={12} style={{ margin: "0 0 0 0" }} />
@@ -432,7 +465,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(p
               }}
               style={{ color: "var(--seal)" }}
             >
-              <Trash size={14} /> Remove highlight
+              <Trash size={14} /> Erase highlight and its note
             </button>
             <button onClick={() => setMenu(null)}>Close</button>
           </div>

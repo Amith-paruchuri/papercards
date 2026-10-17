@@ -6,7 +6,7 @@ const ALLOWED_TAGS = new Set([
 const ALLOWED_ATTRS: Record<string, Set<string>> = {
   A: new Set(["href", "title"]),
   IMG: new Set(["src", "alt", "width", "height"]),
-  LI: new Set(["data-hl", "data-ai", "title"]),
+  LI: new Set(["data-hl", "data-ai", "title", "class"]),
 };
 
 export function sanitizeHtml(html: string): string {
@@ -65,7 +65,8 @@ export function escapeHtml(s: string): string {
 }
 
 /** Append a highlight bullet (<li data-hl>) to a section's HTML, reusing a trailing list if present. */
-export function appendHighlightBullet(html: string, highlightId: string, text: string): string {
+/** Adds a bullet for a highlight. `inner` (already-built HTML, e.g. a restored bullet) wins over plain `text`. */
+export function appendHighlightBullet(html: string, highlightId: string, text: string, inner?: string): string {
   const div = document.createElement("div");
   div.innerHTML = html || "";
   let last = div.lastElementChild;
@@ -75,7 +76,8 @@ export function appendHighlightBullet(html: string, highlightId: string, text: s
   }
   const li = document.createElement("li");
   li.setAttribute("data-hl", highlightId);
-  li.textContent = text;
+  if (inner) li.innerHTML = sanitizeHtml(inner);
+  else li.textContent = text;
   if (last && last.tagName === "UL") last.appendChild(li);
   else {
     const ul = document.createElement("ul");
@@ -85,13 +87,52 @@ export function appendHighlightBullet(html: string, highlightId: string, text: s
   return div.innerHTML;
 }
 
+/** The quoted text of a highlight bullet, without the user's or the AI's added lines. */
+function quoteText(li: HTMLElement): string {
+  const c = li.cloneNode(true) as HTMLElement;
+  c.querySelectorAll("em, br").forEach((n) => n.remove());
+  return (c.textContent || "").trim();
+}
+
 /** Highlight bullets in a section that have not been rewritten by AI yet. */
 export function rawHighlightBullets(html: string): { id: string; text: string }[] {
   const div = document.createElement("div");
   div.innerHTML = html || "";
   return Array.from(div.querySelectorAll<HTMLElement>("li[data-hl]:not([data-ai])"))
-    .map((li) => ({ id: li.getAttribute("data-hl")!, text: (li.textContent || "").trim() }))
+    .map((li) => ({ id: li.getAttribute("data-hl")!, text: quoteText(li) }))
     .filter((b) => b.text);
+}
+
+/** One highlight bullet's quote (for AI prompts about a single passage). */
+export function highlightQuote(html: string, highlightId: string): string | null {
+  const div = document.createElement("div");
+  div.innerHTML = html || "";
+  const li = div.querySelector<HTMLElement>(`li[data-hl="${CSS.escape(highlightId)}"]`);
+  return li ? quoteText(li) : null;
+}
+
+/** Adds a labelled line under a highlight bullet: "My note: …" or "AI: …". */
+export function annotateHighlightBullet(html: string, highlightId: string, label: string, text: string): string {
+  const div = document.createElement("div");
+  div.innerHTML = html || "";
+  div.querySelectorAll<HTMLElement>(`li[data-hl="${CSS.escape(highlightId)}"]`).forEach((li) => {
+    const em = document.createElement("em");
+    em.textContent = `${label}: ${text}`;
+    li.append(document.createElement("br"), em);
+  });
+  return div.innerHTML;
+}
+
+/** Ids of highlight bullets present in some notes HTML. */
+export function highlightIdsIn(html: string): Set<string> {
+  return new Set([...(html || "").matchAll(/data-hl="([^"]+)"/g)].map((m) => m[1]));
+}
+
+/** A bullet's inner HTML (to put it back exactly as it was after an undo). */
+export function highlightBulletHtml(html: string, highlightId: string): string | null {
+  const div = document.createElement("div");
+  div.innerHTML = html || "";
+  return div.querySelector(`li[data-hl="${CSS.escape(highlightId)}"]`)?.innerHTML ?? null;
 }
 
 /** Puts rewritten text into highlight bullets, keeping the PDF link and the original quote as a tooltip. */
@@ -100,8 +141,11 @@ export function rewriteHighlightBullets(html: string, items: { id: string; text:
   div.innerHTML = html || "";
   for (const it of items) {
     div.querySelectorAll<HTMLElement>(`li[data-hl="${CSS.escape(it.id)}"]`).forEach((li) => {
-      const original = (li.getAttribute("title") || "").replace(/^Original: /, "") || (li.textContent || "").trim();
+      const original = (li.getAttribute("title") || "").replace(/^Original: /, "") || quoteText(li);
+      // keep the user's own "My note" lines (and earlier AI answers) under the rewritten quote
+      const extras = Array.from(li.querySelectorAll("em"));
       li.textContent = it.text;
+      for (const em of extras) li.append(document.createElement("br"), em);
       li.setAttribute("data-ai", "1");
       li.setAttribute("title", `Original: ${original}`);
     });

@@ -1,15 +1,17 @@
 // Shared pieces of "Rewrite with AI": request/response shapes, the prompt, and a forgiving parser.
 // The API call itself lives in src/app/api/ai/notes/route.ts (server only, key never reaches the browser).
 
-export type AiMode = "concise" | "clean";
+export type AiMode = "concise" | "clean" | "custom";
 export type AiPassage = { id: string; text: string };
-export type AiRequest = { mode: AiMode; section?: string; paperTitle?: string; passages: AiPassage[] };
+export type AiRequest = { mode: AiMode; section?: string; paperTitle?: string; passages: AiPassage[]; instruction?: string };
 
 export const AI_LIMITS = { passages: 20, charsPerPassage: 4000 };
 
 export function buildPrompt(req: AiRequest): { system: string; user: string } {
   const how =
-    req.mode === "clean"
+    req.mode === "custom"
+      ? "Follow the researcher's instruction (given before the passages) for each passage in at most 70 words, grounded in the passage and general scientific knowledge; say so plainly if the passage cannot answer it. Keep every number, unit and name exactly."
+      : req.mode === "clean"
       ? "Keep the author's wording. Only repair PDF copy damage: broken words, stray line breaks, ligatures, citation numbers, missing spaces. Do not shorten."
       : "Rewrite each passage as one clear note bullet a researcher would write: at most 30 words, plain language, keep every number, unit, statistic, gene/drug/model name and abbreviation exactly. Do not add facts, opinions or hedges that are not in the passage.";
   const system = [
@@ -19,7 +21,8 @@ export function buildPrompt(req: AiRequest): { system: string; user: string } {
     'Reply with JSON only: an array of objects {"id": string, "text": string}, one per passage, same ids, same order.',
   ].join(" ");
   const context = [req.paperTitle ? `Paper: ${req.paperTitle}` : "", req.section ? `Notes section: ${req.section}` : ""].filter(Boolean).join("\n");
-  const user = `${context ? context + "\n\n" : ""}Passages:\n${JSON.stringify(req.passages.map((p) => ({ id: p.id, text: p.text })))}`;
+  const ask = req.mode === "custom" && req.instruction ? `Instruction: ${JSON.stringify(req.instruction)}\n\n` : "";
+  const user = `${context ? context + "\n\n" : ""}${ask}Passages:\n${JSON.stringify(req.passages.map((p) => ({ id: p.id, text: p.text })))}`;
   return { system, user };
 }
 
@@ -47,7 +50,9 @@ export function parseReply(reply: string, ids: string[]): AiPassage[] {
 export function validateRequest(body: unknown): AiRequest | string {
   if (!body || typeof body !== "object") return "Send a JSON body.";
   const b = body as Partial<AiRequest>;
-  const mode: AiMode = b.mode === "clean" ? "clean" : "concise";
+  const mode: AiMode = b.mode === "clean" ? "clean" : b.mode === "custom" ? "custom" : "concise";
+  const instruction = typeof b.instruction === "string" ? b.instruction.trim().slice(0, 500) : "";
+  if (mode === "custom" && !instruction) return "Write what you want the AI to do with this passage.";
   if (!Array.isArray(b.passages) || !b.passages.length) return "Nothing to rewrite.";
   if (b.passages.length > AI_LIMITS.passages) return `Rewrite at most ${AI_LIMITS.passages} highlights at a time.`;
   const passages: AiPassage[] = [];
@@ -57,6 +62,7 @@ export function validateRequest(body: unknown): AiRequest | string {
   }
   return {
     mode,
+    instruction: mode === "custom" ? instruction : undefined,
     passages,
     section: typeof b.section === "string" ? b.section.slice(0, 80) : undefined,
     paperTitle: typeof b.paperTitle === "string" ? b.paperTitle.slice(0, 300) : undefined,

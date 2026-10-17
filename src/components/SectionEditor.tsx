@@ -2,7 +2,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { imageFileToDataUrl, sanitizeHtml } from "@/lib/sanitize";
 import type { NoteSection } from "@/lib/types";
-import { ArrowDown, ArrowUp, ArrowsInSimple, ArrowsOutSimple, CircleNotch, ImageSquare, Sparkle, ListBullets, ListNumbers, TextB, TextH, TextItalic, TextUnderline, Trash } from "@phosphor-icons/react";
+import { ArrowDown, ArrowUp, Plus, ArrowsInSimple, ArrowsOutSimple, CircleNotch, ImageSquare, Sparkle, ListBullets, ListNumbers, TextB, TextH, TextItalic, TextUnderline, Trash } from "@phosphor-icons/react";
 
 const PALETTE = ["#5ec4ee", "#7ed67e", "#f0c463", "#f0879b", "#b59cf0", "#f5a25d", "#9aa3ad"];
 
@@ -61,6 +61,34 @@ export const SectionEditor = memo(function SectionEditor(p: Props) {
     document.execCommand(command, false, value);
     emit();
   };
+
+  /** Starts a fresh bullet at the end of the section for the reader's own thought, with the cursor in it. */
+  function addThought() {
+    const el = ref.current;
+    if (!el) return;
+    let last = el.lastElementChild;
+    while (last && last.tagName === "BR") {
+      last.remove();
+      last = el.lastElementChild;
+    }
+    const li = document.createElement("li");
+    li.className = "own";
+    li.appendChild(document.createElement("br"));
+    if (last && last.tagName === "UL") last.appendChild(li);
+    else {
+      const ul = document.createElement("ul");
+      ul.appendChild(li);
+      el.appendChild(ul);
+    }
+    el.focus();
+    const range = document.createRange();
+    range.setStart(li, 0);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    li.scrollIntoView({ block: "nearest" });
+  }
 
   async function insertImages(files: File[]) {
     for (const f of files.filter((x) => x.type.startsWith("image/"))) {
@@ -223,6 +251,9 @@ export const SectionEditor = memo(function SectionEditor(p: Props) {
           }}
         />
       </div>
+      <button type="button" className="add-thought" onMouseDown={(e) => e.preventDefault()} onClick={addThought}>
+        <Plus size={13} /> Add your own thought
+      </button>
     </div>
   );
 });

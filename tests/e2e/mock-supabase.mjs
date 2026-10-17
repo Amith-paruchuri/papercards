@@ -265,7 +265,8 @@ const server = http.createServer(async (req, res) => {
       }
       const passages = JSON.parse(user.slice(user.indexOf("[")));
       const clean = /Keep the author's wording/.test(b.systemInstruction?.parts?.[0]?.text || "");
-      const items = passages.map((x) => ({ id: x.id, text: clean ? x.text : x.text.split(/\s+/).slice(0, 9).join(" ").replace(/[,.;:]$/, "") + " (Gemini note)." }));
+      const ask = user.match(/Instruction: (".*?")\n/);
+      const items = passages.map((x) => ({ id: x.id, text: ask ? `Answer to ${JSON.parse(ask[1])}: the passage says weak labels replace manual outlining.` : clean ? x.text : x.text.split(/\s+/).slice(0, 9).join(" ").replace(/[,.;:]$/, "") + " (Gemini note)." }));
       return send(res, 200, { candidates: [{ content: { parts: [{ text: JSON.stringify(items) }] } }] });
     }
     // ---- fake ORCID public API and OpenAlex (set PAPERCARDS_ORCID_BASE / PAPERCARDS_OPENALEX_BASE to this server)

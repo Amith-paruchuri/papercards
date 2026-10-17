@@ -10,6 +10,8 @@ import { ThemeSelect } from "./ThemeSelect";
 import { OrigamiMark } from "./Logo";
 import {
   ArrowLeft,
+  FileDoc,
+  FloppyDisk,
   CaretDown,
   Check,
   CircleNotch,
@@ -58,8 +60,20 @@ import { downloadText, slug } from "@/lib/download";
 import { normalizeDoi } from "@/lib/doi";
 import { lookupDoi } from "@/lib/ingest";
 import { sha256Hex } from "@/lib/pdf/pdfjs";
-import { appendHighlightBullet, htmlToText, rawHighlightBullets, removeHighlightBullet, rewriteHighlightBullets, sanitizeHtml } from "@/lib/sanitize";
+import {
+  annotateHighlightBullet,
+  appendHighlightBullet,
+  highlightBulletHtml,
+  highlightIdsIn,
+  highlightQuote,
+  htmlToText,
+  rawHighlightBullets,
+  removeHighlightBullet,
+  rewriteHighlightBullets,
+  sanitizeHtml,
+} from "@/lib/sanitize";
 import { cleanPdfText } from "@/lib/clean-text";
+import { downloadCardWord } from "@/lib/card-export";
 import { readAiAuto, rewriteWithAi, writeAiAuto } from "@/lib/ai-client";
 import {
   STATUS_LABELS,
@@ -94,8 +108,12 @@ export function PaperView({ id }: { id: string }) {
   const [saving, setSaving] = useState<"idle" | "saving" | "saved">("idle");
   const [undoStack, setUndoStack] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
-  const [merged, setMerged] = useState(false);
+  const [dlMenu, setDlMenu] = useState(false);
   const [fullPdf, setFullPdf] = useState(false);
+  const highlightsRef = useRef<Highlight[]>([]);
+  useEffect(() => {
+    highlightsRef.current = highlights;
+  }, [highlights]);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState<Record<string, boolean>>({});
   const [aiAuto, setAiAuto] = useState(false);
@@ -107,6 +125,7 @@ export function PaperView({ id }: { id: string }) {
   const sectionsRef = useRef<NoteSection[]>([]);
   sectionsRef.current = sections;
   const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const pendingHtml = useRef<Map<string, string>>(new Map());
 
   // ---------- load ----------
   const loadAll = useCallback(async () => {
@@ -196,10 +215,12 @@ export function PaperView({ id }: { id: string }) {
     setSaving("saving");
     const timers = saveTimers.current;
     clearTimeout(timers.get(sectionId));
+    pendingHtml.current.set(sectionId, html);
     timers.set(
       sectionId,
       setTimeout(async () => {
         timers.delete(sectionId);
+        pendingHtml.current.delete(sectionId);
         try {
           await updateSection(sectionId, { content_html: html });
           if (!timers.size) setSaving("saved");
@@ -211,8 +232,47 @@ export function PaperView({ id }: { id: string }) {
     );
   }, [toast]);
 
+  /** "Save card": writes every section that still has an unsaved edit right now instead of waiting for the debounce. */
+  async function saveCard() {
+    const timers = saveTimers.current;
+    const pending = [...pendingHtml.current];
+    pending.forEach(([id]) => clearTimeout(timers.get(id)));
+    timers.clear();
+    pendingHtml.current.clear();
+    setSaving("saving");
+    try {
+      await Promise.all(pending.map(([id, html]) => updateSection(id, { content_html: html })));
+      setSaving("saved");
+      const filled = sections.filter((s) => htmlToText(pending.find(([id]) => id === s.id)?.[1] ?? s.content_html)).length;
+      toast(`Card saved. ${filled} of ${sections.length} sections have notes.`);
+    } catch (e) {
+      pending.forEach(([id, html]) => pendingHtml.current.set(id, html));
+      setSaving("idle");
+      toast(errorMessage(e), { err: true, action: { label: "Try again", onClick: () => void saveCard() } });
+    }
+  }
+
+  function printCard(asPdf: boolean) {
+    setDlMenu(false);
+    if (asPdf) toast('In the print window, set Destination to "Save as PDF".');
+    setTimeout(() => window.print(), asPdf ? 350 : 0);
+  }
+
+  // Deleting a highlight's bullet from the notes also erases the highlight on the PDF (after a short
+  // pause, so cutting and re-pasting or the editor's own undo don't count), with Undo.
+  const eraseFromNotes = useRef<(id: string, sectionId: string, bullet: string | null) => void>(() => {});
+  // Each bullet's last non-empty version: when you select a bullet and press Delete, it is emptied
+  // before it disappears, and Undo should bring back what it said, not the empty line.
+  const lastBullet = useRef(new Map<string, string>());
   const onSectionChange = useCallback(
     (sectionId: string, html: string) => {
+      const before = sectionsRef.current.find((s) => s.id === sectionId)?.content_html ?? "";
+      for (const id of highlightIdsIn(before)) {
+        const b = highlightBulletHtml(before, id);
+        if (b && b.replace(/<br\s*\/?>|&nbsp;|\s/g, "")) lastBullet.current.set(id, b);
+      }
+      const now = highlightIdsIn(html);
+      for (const id of highlightIdsIn(before)) if (!now.has(id)) eraseFromNotes.current(id, sectionId, lastBullet.current.get(id) ?? null);
       setSections((ss) => ss.map((s) => (s.id === sectionId ? { ...s, content_html: html } : s)));
       scheduleSave(sectionId, html);
     },
@@ -268,7 +328,7 @@ export function PaperView({ id }: { id: string }) {
   }
 
   // ---------- highlights ----------
-  async function onHighlight(h: PendingRect & { sectionId: string | null; color: string }) {
+  async function onHighlight(h: PendingRect & { sectionId: string | null; color: string; note?: string; ask?: string }) {
     if (!paper) return;
     try {
       const saved = await createHighlight({ paper_id: paper.id, section_id: h.sectionId, page: h.page, text: h.text, color: h.color, rects: h.rects });
@@ -281,9 +341,14 @@ export function PaperView({ id }: { id: string }) {
         // The bullet gets the cleaned-up text (broken words rejoined etc.); the highlight keeps the exact quote.
         setTimeout(() => {
           const sec = sectionsRef.current.find((s) => s.id === sectionId);
-          if (sec) setSectionHtmlExternally(sec.id, appendHighlightBullet(sec.content_html, saved.id, cleanPdfText(h.text)));
+          if (sec) {
+            let html = appendHighlightBullet(sec.content_html, saved.id, cleanPdfText(h.text));
+            if (h.note) html = annotateHighlightBullet(html, saved.id, "My note", h.note);
+            setSectionHtmlExternally(sec.id, html);
+          }
           // Give React a moment to commit the new bullet before the AI reads the section.
-          if (aiAuto) setTimeout(() => void aiRewrite(sectionId, "concise", [saved.id], { quiet: true }), 120);
+          if (h.ask) setTimeout(() => void askAi(sectionId, saved.id, h.ask!), 120);
+          else if (aiAuto) setTimeout(() => void aiRewrite(sectionId, "concise", [saved.id], { quiet: true }), 120);
         }, land);
       }
       if (paper.status === "to_read" || paper.status === "reading") void patchPaper({ status: "annotated" });
@@ -324,28 +389,83 @@ export function PaperView({ id }: { id: string }) {
     }
   }
 
-  async function onNewSectionHighlight(h: PendingRect) {
+  /** "Ask AI" from the highlight menu: the answer is added under the quote as "AI: …". */
+  async function askAi(sectionId: string, highlightId: string, instruction: string) {
+    const sec = sectionsRef.current.find((s) => s.id === sectionId);
+    const quote = sec ? highlightQuote(sec.content_html, highlightId) : null;
+    if (!sec || !quote || !paper) return;
+    setAiBusy((b) => ({ ...b, [sectionId]: true }));
+    try {
+      const [item] = await rewriteWithAi([{ id: highlightId, text: quote }], { mode: "custom", instruction, section: sec.title, paperTitle: paper.title });
+      const now = sectionsRef.current.find((s) => s.id === sectionId);
+      if (item && now) setSectionHtmlExternally(sectionId, annotateHighlightBullet(now.content_html, highlightId, "AI", item.text));
+    } catch (e) {
+      toast(errorMessage(e), { err: true });
+    } finally {
+      setAiBusy((b) => ({ ...b, [sectionId]: false }));
+    }
+  }
+
+  /** Puts an erased highlight back on the PDF, with its bullet exactly as it was. */
+  async function restoreHighlight(h: Highlight, bullet: string | null) {
+    if (!paper) return;
+    try {
+      const saved = await createHighlight({ paper_id: paper.id, section_id: h.section_id, page: h.page, text: h.text, color: h.color, rects: h.rects });
+      setHighlights((hs) => [...hs, saved]);
+      const sec = h.section_id ? sectionsRef.current.find((s) => s.id === h.section_id) : null;
+      const inner = bullet && bullet.replace(/<br\s*\/?>|&nbsp;|\s/g, "") ? bullet : undefined;
+      if (sec) setSectionHtmlExternally(sec.id, appendHighlightBullet(sec.content_html, saved.id, cleanPdfText(h.text), inner));
+      toast("Highlight restored.");
+    } catch (e) {
+      toast(errorMessage(e), { err: true });
+    }
+  }
+
+  const eraseTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    eraseFromNotes.current = (id, _sectionId, bullet) => {
+      clearTimeout(eraseTimers.current.get(id));
+      eraseTimers.current.set(
+        id,
+        setTimeout(() => {
+          eraseTimers.current.delete(id);
+          if (sectionsRef.current.some((s) => highlightIdsIn(s.content_html).has(id))) return; // it came back (undo, re-paste)
+          const h = highlightsRef.current.find((x) => x.id === id);
+          if (!h) return;
+          setHighlights((hs) => hs.filter((x) => x.id !== id));
+          setUndoStack((u) => u.filter((x) => x !== id));
+          void deleteHighlight(id).catch((e) => toast(errorMessage(e), { err: true }));
+          toast("Erased its highlight from the PDF too.", { action: { label: "Undo", onClick: () => void restoreHighlight(h, bullet) }, ms: 7000 });
+        }, 1500)
+      );
+    };
+  });
+
+  async function onNewSectionHighlight(h: PendingRect & { note?: string; ask?: string }) {
     const s = await addSection();
     if (s) await onHighlight({ ...h, sectionId: s.id, color: s.color || "#f0c463" });
   }
 
-  async function onDeleteHighlight(h: Highlight) {
+  /** Erases a highlight from the PDF and its bullet from the notes, with Undo. */
+  async function onDeleteHighlight(h: Highlight, message = "Highlight and its note erased.") {
     setHighlights((hs) => hs.filter((x) => x.id !== h.id));
     setUndoStack((u) => u.filter((x) => x !== h.id));
+    let bullet: string | null = null;
     if (h.section_id) {
       const sec = sectionsRef.current.find((s) => s.id === h.section_id);
-      if (sec) setSectionHtmlExternally(sec.id, removeHighlightBullet(sec.content_html, h.id));
+      if (sec) {
+        bullet = highlightBulletHtml(sec.content_html, h.id);
+        setSectionHtmlExternally(sec.id, removeHighlightBullet(sec.content_html, h.id));
+      }
     }
+    toast(message, { action: { label: "Undo", onClick: () => void restoreHighlight(h, bullet) }, ms: 7000 });
     await deleteHighlight(h.id).catch((e) => toast(errorMessage(e), { err: true }));
   }
 
   function undo() {
     const last = undoStack[undoStack.length - 1];
     const h = highlights.find((x) => x.id === last);
-    if (h) {
-      void onDeleteHighlight(h);
-      toast("Highlight removed.");
-    }
+    if (h) void onDeleteHighlight(h, "Last highlight undone.");
   }
 
   useEffect(() => {
@@ -357,10 +477,14 @@ export function PaperView({ id }: { id: string }) {
           undo();
         }
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        void saveCard();
+      }
       if (e.key === "Escape") {
         if (!fullPdf) setFocusId(null);
         setFullPdf(false);
-        setMerged(false);
+        setDlMenu(false);
         setMenu(false);
       }
     };
@@ -564,9 +688,6 @@ export function PaperView({ id }: { id: string }) {
                   <DownloadSimple size={16} /> Download RIS
                 </button>
                 <hr />
-                <button role="menuitem" onClick={() => (setMerged(true), setMenu(false))}>
-                  <Printer size={16} /> One-page summary
-                </button>
                 {pdfData && (
                   <button role="menuitem" onClick={() => (downloadOriginal(), setMenu(false))}>
                     <FilePdf size={16} /> Download the PDF
@@ -714,6 +835,40 @@ export function PaperView({ id }: { id: string }) {
           <button className="add-section" onClick={() => void addSection()}>
             <Plus size={14} /> Add a section
           </button>
+          <div className="card-bar" role="toolbar" aria-label="Card actions">
+            <button className="btn small" onClick={() => void saveCard()} disabled={saving === "saving"} title="Save card (⌘S)">
+              {saving === "saving" ? <CircleNotch size={15} className="spin" /> : <FloppyDisk size={15} />} Save card
+            </button>
+            <div className="card-bar-dl">
+              <button className="btn ghost small" aria-haspopup="menu" aria-expanded={dlMenu} onClick={() => setDlMenu((m) => !m)}>
+                <DownloadSimple size={15} /> Download card <CaretDown size={12} />
+              </button>
+              {dlMenu && (
+                <>
+                  <div className="menu card-bar-menu" role="menu" onMouseLeave={() => setDlMenu(false)}>
+                    <button role="menuitem" onClick={() => printCard(true)}>
+                      <FilePdf size={16} /> PDF
+                    </button>
+                    <button role="menuitem" onClick={() => (downloadCardWord(paper, sections, paperTags), setDlMenu(false), toast("Word document downloaded."))}>
+                      <FileDoc size={16} /> Word (.doc)
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        setDlMenu(false);
+                        void navigator.clipboard?.writeText(cardPlainText(paper, sections)).then(() => toast("Card copied as text."));
+                      }}
+                    >
+                      <Copy size={16} /> Copy as text
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+            <button className="btn ghost small" onClick={() => printCard(false)}>
+              <Printer size={15} /> Print
+            </button>
+          </div>
         </div>
 
         <div className={`pdf-col${fullPdf ? " full" : ""}`}>
@@ -788,7 +943,7 @@ export function PaperView({ id }: { id: string }) {
         </div>
       </div>
 
-      {merged && <MergedView paper={paper} sections={sections} tags={paperTags} onClose={() => setMerged(false)} />}
+      <PrintCard paper={paper} sections={sections} tags={paperTags} />
     </div>
   );
 }
@@ -886,31 +1041,23 @@ function MetaForm({ paper, onSave, onRefreshDoi }: { paper: Paper; onSave: (patc
 }
 
 // ---------------------------------------------------------------------------
-function MergedView({ paper, sections, tags, onClose }: { paper: Paper; sections: NoteSection[]; tags: Tag[]; onClose: () => void }) {
-  const plain = [
+function cardPlainText(paper: Paper, sections: NoteSection[]) {
+  return [
     paper.title,
     [formatAuthorsFull(paper.authors, 999), paper.year ? `(${paper.year})` : "", paper.journal].filter(Boolean).join(" "),
     paper.doi ? `https://doi.org/${paper.doi}` : "",
     "",
     ...sections.flatMap((s) => [s.title.toUpperCase(), htmlToText(s.content_html) || "(empty)", ""]),
   ].join("\n");
+}
+
+/** The card laid out for paper. Hidden on screen; "Print" and "Download card → PDF" print only this. */
+function PrintCard({ paper, sections, tags }: { paper: Paper; sections: NoteSection[]; tags: Tag[] }) {
   return (
-    <div className="modal-backdrop print-area-wrap" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal print-area" style={{ width: "min(820px, 100%)" }} role="dialog" aria-modal="true">
-        <div className="row no-print" style={{ marginBottom: 10 }}>
-          <span className="hint grow">One-page summary</span>
-          <button className="btn ghost small" onClick={() => void navigator.clipboard?.writeText(plain)}>
-            <Copy size={14} /> Copy as text
-          </button>
-          <button className="btn small" onClick={() => window.print()}>
-            <Printer size={14} /> Print or save as PDF
-          </button>
-          <button className="icon-btn" onClick={onClose} aria-label="Close summary">
-            <X size={16} />
-          </button>
-        </div>
+    <div className="print-only print-area-wrap" aria-hidden="true">
+      <div className="print-area">
         <div className="print-brand">
-          <OrigamiMark size={20} /> <span>PaperCards summary</span>
+          <OrigamiMark size={20} /> <span>PaperCards</span>
         </div>
         <h2 style={{ font: "500 28px/1.2 var(--font-serif)", margin: "12px 0 6px", letterSpacing: "-0.01em" }}>{paper.title}</h2>
         <div className="hint" style={{ fontSize: 14 }}>
