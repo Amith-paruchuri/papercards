@@ -257,7 +257,7 @@ export function FeedbackForm({ initialProduct }: { initialProduct: Product | nul
                 <label className="field-label" htmlFor="fb-email">
                   Email
                 </label>
-                <input id="fb-email" type="email" autoComplete="email" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@institute.edu…" />
+                <input id="fb-email" type="email" autoComplete="email" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email address" />
               </div>
               <div className="fb-wide">
                 <label className="field-label" htmlFor="fb-role">

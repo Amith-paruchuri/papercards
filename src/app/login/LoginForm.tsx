@@ -1,7 +1,7 @@
 "use client";
 import { startTransition, useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, CircleNotch, Eye, EyeSlash, EnvelopeSimpleOpen } from "@phosphor-icons/react";
+import { ArrowRight, CircleNotch, Eye, EyeSlash, EnvelopeSimpleOpen, Play } from "@phosphor-icons/react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { PASSWORD_MIN } from "@/lib/auth-validate";
 import { resendCode, sendReset, signIn, signUp, verifyCode, type AuthState } from "./actions";
@@ -147,6 +147,23 @@ export function LoginForm({
 
   return (
     <div className="auth-card">
+      {mode !== "reset" && (
+        <>
+          <button type="button" className="demo-cta" onClick={() => void tryAsGuest()} disabled={busy}>
+            <span className="demo-cta-icon" aria-hidden="true">
+              {guest ? <CircleNotch size={22} className="spin" /> : <Play size={20} weight="fill" />}
+            </span>
+            <span className="demo-cta-text">
+              <strong>{guest ? "Opening your demo library…" : "Try the live demo"}</strong>
+              <span>No sign-up. Five classic papers ready to highlight.</span>
+            </span>
+            <ArrowRight size={20} className="demo-cta-arrow" aria-hidden="true" />
+          </button>
+          <div className="or-rule" role="presentation">
+            <span>or sign in to keep your own library</span>
+          </div>
+        </>
+      )}
       {googleEnabled && (
         <>
           <button type="button" className="btn ghost google-btn" onClick={() => void withGoogle()} disabled={busy}>
@@ -190,7 +207,7 @@ export function LoginForm({
           required
           autoComplete="email"
           spellCheck={false}
-          placeholder="you@institute.edu…"
+          placeholder="Email address"
           defaultValue={state.email ?? ""}
         />
 
@@ -260,27 +277,6 @@ export function LoginForm({
         )}
       </form>
 
-      {mode !== "reset" && (
-        <>
-          <div className="or-rule" role="presentation">
-            <span>or</span>
-          </div>
-          <button type="button" className="btn quiet guest-btn" onClick={() => void tryAsGuest()} disabled={busy}>
-            {guest ? (
-              <>
-                <CircleNotch size={16} className="spin" /> Setting up a demo library…
-              </>
-            ) : (
-              <>
-                Try it first, no account <ArrowRight size={15} />
-              </>
-            )}
-          </button>
-          <p className="hint" style={{ marginTop: 8, textAlign: "center" }}>
-            A private demo library with five classic papers. Keep it later by adding your email.
-          </p>
-        </>
-      )}
     </div>
   );
 }

@@ -1350,7 +1350,7 @@ function GuestBanner() {
       </span>
       {open ? (
         <form className="gb-form" onSubmit={keep}>
-          <input type="email" required autoComplete="email" spellCheck={false} placeholder="you@institute.edu…" aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input type="email" required autoComplete="email" spellCheck={false} placeholder="Email address" aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
           <input type="password" required autoComplete="new-password" placeholder="Password (8+, with a number)…" aria-label="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
           <button className="btn small" disabled={busy}>
             {busy ? "Saving…" : "Keep my library"}
