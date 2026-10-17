@@ -9,8 +9,7 @@ import {
   FolderSimple,
   FolderSimplePlus,
   MagnifyingGlass,
-  MoonStars,
-} from "@phosphor-icons/react";
+  MoonStars, Graph } from "@phosphor-icons/react";
 import { listCollections, listLibrary } from "@/lib/data";
 import { formatAuthorShort } from "@/lib/citations";
 import { applyTheme, nextTheme, readTheme } from "@/lib/theme";
@@ -80,8 +79,9 @@ export function CommandPalette() {
     const match = (s: string) => !needle || needle.split(/\s+/).every((t) => s.toLowerCase().includes(t));
     const actions: Item[] = [
       { id: "a-add", group: "Actions", label: "Add papers", sub: "N", icon: <FilePlus size={18} />, run: () => go("add") },
-      { id: "a-col", group: "Actions", label: "New collection", icon: <FolderSimplePlus size={18} />, run: () => go("new-collection") },
+      { id: "a-col", group: "Actions", label: "New deck", icon: <FolderSimplePlus size={18} />, run: () => go("new-collection") },
       { id: "a-bib", group: "Actions", label: "Export library as BibTeX", icon: <DownloadSimple size={18} />, run: () => go("export-bib") },
+      { id: "a-graph", group: "Actions", label: "Open the research graph", icon: <Graph size={18} />, run: () => (setOpen(false), router.push("/graph")) },
       { id: "a-imp", group: "Actions", label: "Import from the old Paper Cards", icon: <ArrowSquareIn size={18} />, run: () => (setOpen(false), router.push("/import")) },
       { id: "a-theme", group: "Actions", label: "Switch theme", icon: <MoonStars size={18} />, run: () => applyTheme(nextTheme(readTheme())) },
     ].filter((a) => match(a.label));
@@ -100,7 +100,7 @@ export function CommandPalette() {
     const colItems: Item[] = collections
       .filter((c) => match(c.name))
       .slice(0, 5)
-      .map((c) => ({ id: c.id, group: "Collections", label: c.name, icon: <FolderSimple size={18} />, run: () => (setOpen(false), router.push(`/?scope=col:${c.id}`)) }));
+      .map((c) => ({ id: c.id, group: "Decks", label: c.name, icon: <FolderSimple size={18} />, run: () => (setOpen(false), router.push(`/?scope=col:${c.id}`)) }));
     return needle ? [...paperItems, ...colItems, ...actions] : [...actions, ...paperItems, ...colItems];
   }, [q, papers, collections, go, router]);
 
@@ -124,7 +124,7 @@ export function CommandPalette() {
             aria-expanded="true"
             aria-controls="palette-list"
             aria-activedescendant={items[safeActive] ? `pi-${items[safeActive].id}` : undefined}
-            placeholder="Search papers, collections or actions…"
+            placeholder="Search papers, decks or actions…"
             value={q}
             onChange={(e) => {
               setQ(e.target.value);

@@ -10,12 +10,14 @@ import type {
   Paper,
   PaperMeta,
   PaperStatus,
+  Profile,
   StudyType,
   Tag,
 } from "./types";
+import { TRASH_DAYS } from "./types";
 
 const PAPER_COLUMNS =
-  "id, owner_id, title, authors, year, journal, volume, issue, pages, publisher, doi, url, abstract, item_type, study_type, site, subjects, status, priority, pdf_path, pdf_sha256, pdf_size, legacy_id, created_at, updated_at";
+  "id, owner_id, title, authors, year, journal, volume, issue, pages, publisher, doi, url, abstract, item_type, study_type, site, subjects, status, priority, pdf_path, pdf_sha256, pdf_size, legacy_id, is_mine, deleted_at, created_at, updated_at";
 
 export const PDF_BUCKET = "pdfs";
 export const MAX_PDF_BYTES = 50 * 1024 * 1024;
@@ -55,6 +57,7 @@ export async function listLibrary(): Promise<LibraryPaper[]> {
   const { data, error } = await db()
     .from("papers")
     .select(`${PAPER_COLUMNS}, paper_tags(tag_id), collection_papers(collection_id), note_sections(id, color, position, has_notes)`)
+    .is("deleted_at", null)
     .order("updated_at", { ascending: false });
   fail(error, "Loading library");
   return (data ?? []) as unknown as LibraryPaper[];
@@ -73,7 +76,7 @@ export function toPrefixQuery(q: string): string | null {
 export async function searchPaperIds(q: string): Promise<Set<string>> {
   const query = toPrefixQuery(q);
   if (!query) return new Set();
-  const { data, error } = await db().from("papers").select("id").textSearch("search", query, { config: "english" });
+  const { data, error } = await db().from("papers").select("id").is("deleted_at", null).textSearch("search", query, { config: "english" });
   fail(error, "Search");
   return new Set((data ?? []).map((r: { id: string }) => r.id));
 }
@@ -97,12 +100,24 @@ export type NewPaper = Partial<PaperMeta> & {
   subjects?: string[];
   priority?: number;
   legacy_id?: string | null;
+  is_mine?: boolean;
 };
 
 export async function createPaper(input: NewPaper): Promise<Paper> {
   const row = { ...input, doi: input.doi ? input.doi.toLowerCase() : null, title: input.title.trim() || "Untitled" };
   const { data, error } = await db().from("papers").insert(row).select(PAPER_COLUMNS).single();
-  if (error?.code === "23505" && row.doi) throw new DuplicateDoiError(await findPaperByDoi(row.doi));
+  if (error?.code === "23505" && row.doi) {
+    // Same DOI already here. If it is sitting in Trash, bring it back instead of refusing.
+    const { data: old } = await db().from("papers").select("id, deleted_at").eq("doi", row.doi).maybeSingle();
+    const existing = old as { id: string; deleted_at: string | null } | null;
+    if (existing?.deleted_at) {
+      await restorePapers([existing.id]);
+      if (input.is_mine) await setMine([existing.id], true);
+      const back = await getPaper(existing.id);
+      if (back) return back;
+    }
+    throw new DuplicateDoiError(existing?.id ?? null);
+  }
   fail(error, "Creating paper");
   return data as Paper;
 }
@@ -114,6 +129,82 @@ export async function updatePaper(id: string, patch: Partial<Omit<Paper, "id" | 
   if (error?.code === "23505") throw new DuplicateDoiError(typeof clean.doi === "string" ? await findPaperByDoi(clean.doi) : null);
   fail(error, "Saving paper");
   return data as Paper;
+}
+
+// ---------------------------------------------------------------------------
+// Trash (soft delete). Papers stay restorable for TRASH_DAYS, then the app removes them for good.
+// ---------------------------------------------------------------------------
+export async function trashPapers(ids: string[]) {
+  if (!ids.length) return;
+  const { error } = await db().from("papers").update({ deleted_at: new Date().toISOString() }).in("id", ids);
+  fail(error, "Moving to Trash");
+}
+
+export async function restorePapers(ids: string[]) {
+  if (!ids.length) return;
+  const { error } = await db().from("papers").update({ deleted_at: null }).in("id", ids);
+  fail(error, "Restoring");
+}
+
+export async function listTrash(): Promise<Paper[]> {
+  const { data, error } = await db().from("papers").select(PAPER_COLUMNS).not("deleted_at", "is", null).order("deleted_at", { ascending: false });
+  fail(error, "Loading Trash");
+  return (data ?? []) as Paper[];
+}
+
+/** Permanently deletes papers (and their PDFs, notes and highlights). */
+export async function deleteForever(papers: Pick<Paper, "id" | "pdf_path">[]) {
+  if (!papers.length) return;
+  const files = papers.map((p) => p.pdf_path).filter((p): p is string => Boolean(p));
+  if (files.length) await db().storage.from(PDF_BUCKET).remove(files);
+  const { error } = await db().from("papers").delete().in("id", papers.map((p) => p.id));
+  fail(error, "Deleting for good");
+}
+
+/** Removes papers that have been in Trash longer than TRASH_DAYS. Returns how many went. */
+export async function purgeOldTrash(): Promise<number> {
+  const cutoff = new Date(Date.now() - TRASH_DAYS * 86400000).toISOString();
+  const { data, error } = await db().from("papers").select("id, pdf_path").not("deleted_at", "is", null).lt("deleted_at", cutoff);
+  if (error || !data?.length) return 0;
+  await deleteForever(data as Pick<Paper, "id" | "pdf_path">[]);
+  return data.length;
+}
+
+export async function setMine(ids: string[], mine: boolean) {
+  if (!ids.length) return;
+  const { error } = await db().from("papers").update({ is_mine: mine }).in("id", ids);
+  fail(error, "Updating My publications");
+}
+
+type IndexEntry = { id: string; trashed: boolean; mine: boolean };
+/** Every paper's DOI and title key, including Trash (for de-duplicating publication imports). */
+export async function importIndex(): Promise<{ byDoi: Map<string, IndexEntry>; byTitle: Map<string, IndexEntry> }> {
+  const { data, error } = await db().from("papers").select("id, doi, title, deleted_at, is_mine");
+  fail(error, "Checking your library");
+  const byDoi = new Map<string, IndexEntry>();
+  const byTitle = new Map<string, IndexEntry>();
+  for (const r of (data ?? []) as { id: string; doi: string | null; title: string; deleted_at: string | null; is_mine: boolean }[]) {
+    const e = { id: r.id, trashed: Boolean(r.deleted_at), mine: r.is_mine };
+    if (r.doi) byDoi.set(r.doi, e);
+    byTitle.set(titleKey(r.title), e);
+  }
+  return { byDoi, byTitle };
+}
+export const titleKey = (t: string) => (t || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+// ---------------------------------------------------------------------------
+// Profile (linked ORCID / Scholar / ResearchGate / OpenAlex)
+// ---------------------------------------------------------------------------
+export async function getProfile(): Promise<Profile | null> {
+  const { data } = await db().from("profiles").select("id, display_name, orcid, scholar_url, researchgate_url, openalex_id, publications_synced_at").maybeSingle();
+  return (data as Profile | null) ?? null;
+}
+
+export async function updateProfile(patch: Partial<Omit<Profile, "id">>) {
+  const user = await currentUser();
+  if (!user) throw new Error("Sign in first.");
+  const { error } = await db().from("profiles").upsert({ id: user.id, ...patch }, { onConflict: "id" });
+  fail(error, "Saving your profile links");
 }
 
 export async function deletePaper(paper: Pick<Paper, "id" | "pdf_path">) {
@@ -170,37 +261,37 @@ export async function findPaperByPdfHash(sha256: string): Promise<string | null>
 // ---------------------------------------------------------------------------
 export async function listCollections(): Promise<Collection[]> {
   const { data, error } = await db().from("collections").select("*").order("position").order("name");
-  fail(error, "Loading collections");
+  fail(error, "Loading decks");
   return (data ?? []) as Collection[];
 }
 
 export async function createCollection(name: string, parentId: string | null = null): Promise<Collection> {
   const { data, error } = await db().from("collections").insert({ name: name.trim(), parent_id: parentId }).select("*").single();
-  fail(error, "Creating collection");
+  fail(error, "Creating deck");
   return data as Collection;
 }
 
 export async function updateCollection(id: string, patch: Partial<Pick<Collection, "name" | "summary" | "parent_id" | "position">>) {
   const { data, error } = await db().from("collections").update(patch).eq("id", id).select("*").single();
-  fail(error, "Saving collection");
+  fail(error, "Saving deck");
   return data as Collection;
 }
 
 export async function deleteCollection(id: string) {
   const { error } = await db().from("collections").delete().eq("id", id);
-  fail(error, "Deleting collection");
+  fail(error, "Deleting deck");
 }
 
 export async function addPapersToCollection(paperIds: string[], collectionId: string) {
   if (!paperIds.length) return;
   const rows = paperIds.map((paper_id) => ({ paper_id, collection_id: collectionId }));
   const { error } = await db().from("collection_papers").upsert(rows, { onConflict: "collection_id,paper_id", ignoreDuplicates: true });
-  fail(error, "Adding to collection");
+  fail(error, "Adding to deck");
 }
 
 export async function removePaperFromCollection(paperId: string, collectionId: string) {
   const { error } = await db().from("collection_papers").delete().eq("paper_id", paperId).eq("collection_id", collectionId);
-  fail(error, "Removing from collection");
+  fail(error, "Removing from deck");
 }
 
 // ---------------------------------------------------------------------------

@@ -30,7 +30,7 @@ export function exportRIS(papers: LibraryPaper[], tags: Tag[], name = "papercard
 export function exportCSV(papers: LibraryPaper[], tags: Tag[], collections: Collection[], name = "papercards") {
   const tagName = new Map(tags.map((t) => [t.id, t.name]));
   const colName = new Map(collections.map((c) => [c.id, c.name]));
-  const header = ["Title", "Authors", "Year", "Journal", "Volume", "Issue", "Pages", "DOI", "URL", "Status", "Study type", "Site", "Subjects", "Tags", "Collections", "Priority", "Has PDF", "Abstract", "Added"];
+  const header = ["Title", "Authors", "Year", "Journal", "Volume", "Issue", "Pages", "DOI", "URL", "Status", "Study type", "Site", "Subjects", "Tags", "Decks", "Priority", "Has PDF", "Abstract", "Added"];
   const rows = papers.map((p) => [
     p.title,
     formatAuthorsFull(p.authors, 999),

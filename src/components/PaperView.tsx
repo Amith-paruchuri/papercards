@@ -34,7 +34,8 @@ import {
   createHighlight,
   createSection,
   deleteHighlight,
-  deletePaper,
+  restorePapers,
+  trashPapers,
   deleteSection,
   downloadPdf,
   DuplicateDoiError,
@@ -449,10 +450,11 @@ export function PaperView({ id }: { id: string }) {
   }
 
   async function onDeletePaper() {
-    if (!paper || !confirm("Delete this card, its PDF, notes and highlights? This cannot be undone.")) return;
+    if (!paper) return;
+    const id = paper.id;
     try {
-      await deletePaper(paper);
-      toast("Card deleted.");
+      await trashPapers([id]);
+      toast("Moved to Trash. It stays there for 30 days.", { action: { label: "Undo", onClick: () => void restorePapers([id]) } });
       router.push("/");
     } catch (e) {
       toast(errorMessage(e), { err: true });
@@ -487,6 +489,21 @@ export function PaperView({ id }: { id: string }) {
 
   return (
     <div>
+      {paper.deleted_at && (
+        <div className="trash-banner" role="status">
+          <Trash size={16} /> This paper is in Trash and will be deleted for good 30 days after it was moved there.
+          <button
+            className="btn small"
+            onClick={async () => {
+              await restorePapers([paper.id]);
+              setPaper({ ...paper, deleted_at: null });
+              toast("Restored to your library.");
+            }}
+          >
+            Restore
+          </button>
+        </div>
+      )}
       <header className="paper-head">
         <div className="crumbs">
           <Link
@@ -557,7 +574,7 @@ export function PaperView({ id }: { id: string }) {
                 )}
                 <hr />
                 <button role="menuitem" onClick={onDeletePaper} style={{ color: "var(--seal)" }}>
-                  <Trash size={16} /> Delete card
+                  <Trash size={16} /> Move to Trash
                 </button>
               </div>
             )}
@@ -609,10 +626,10 @@ export function PaperView({ id }: { id: string }) {
           <details className="menu-wrap" style={{ display: "inline-block" }}>
             <summary className="btn ghost small" style={{ listStyle: "none", borderRadius: 999 }}>
               <FolderSimple size={15} />
-              {paperCollectionIds.length ? `In ${paperCollectionIds.length} ${paperCollectionIds.length > 1 ? "collections" : "collection"}` : "Add to collection"}
+              {paperCollectionIds.length ? `In ${paperCollectionIds.length} ${paperCollectionIds.length > 1 ? "decks" : "deck"}` : "Add to deck"}
             </summary>
             <div className="menu" style={{ left: 0, right: "auto" }}>
-              {collections.length === 0 && <div className="menu-note">Create a collection from the library sidebar first.</div>}
+              {collections.length === 0 && <div className="menu-note">Create a deck from the library sidebar first.</div>}
               {collections.map((c) => (
                 <label key={c.id} className="menu-check">
                   <input type="checkbox" checked={paperCollectionIds.includes(c.id)} onChange={(e) => void toggleCollection(c.id, e.target.checked)} />

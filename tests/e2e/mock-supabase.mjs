@@ -26,14 +26,14 @@ const UNIQUE = {
   paper_tags: [(r) => `${r.paper_id}|${r.tag_id}`],
 };
 const DEFAULTS = {
-  papers: () => ({ title: "Untitled", authors: [], year: null, journal: null, volume: null, issue: null, pages: null, publisher: null, doi: null, url: null, abstract: null, item_type: "article", study_type: null, site: null, subjects: [], status: "to_read", priority: 0, pdf_path: null, pdf_sha256: null, pdf_size: null, legacy_id: null }),
+  papers: () => ({ title: "Untitled", authors: [], year: null, journal: null, volume: null, issue: null, pages: null, publisher: null, doi: null, url: null, abstract: null, item_type: "article", study_type: null, site: null, subjects: [], status: "to_read", priority: 0, pdf_path: null, pdf_sha256: null, pdf_size: null, legacy_id: null, is_mine: false, deleted_at: null }),
   collections: () => ({ parent_id: null, summary: "", position: 0 }),
   tags: () => ({ color: null }),
   note_sections: () => ({ title: "Notes", color: null, position: 0, content_html: "" }),
   highlights: () => ({ section_id: null, text: "", color: null, rects: [] }),
   collection_papers: () => ({ added_at: now() }),
   paper_tags: () => ({}),
-  profiles: () => ({}),
+  profiles: () => ({ orcid: null, scholar_url: null, researchgate_url: null, openalex_id: null, publications_synced_at: null }),
 };
 
 function insertRow(table, row, uid) {
@@ -147,6 +147,8 @@ function matchFilter(row, key, raw) {
   else if (op === "neq") ok = String(cell) !== val;
   else if (op === "in") ok = val.replace(/^\(|\)$/g, "").split(",").map((x) => x.replace(/^"|"$/g, "")).includes(String(cell));
   else if (op === "is") ok = val === "null" ? cell === null || cell === undefined : String(cell) === val;
+  else if (op === "lt") ok = cell != null && String(cell) < val;
+  else if (op === "gt") ok = cell != null && String(cell) > val;
   else if (op === "ilike") ok = new RegExp("^" + val.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/[*%]/g, ".*") + "$", "i").test(String(cell ?? ""));
   else if (op.startsWith("fts")) {
     const hay = tokens([row.title, (row.authors || []).map((a) => `${a.given ?? ""} ${a.family}`).join(" "), row.abstract, row.journal, row.doi, row.year, row.site, (row.subjects || []).join(" ")].join(" "));
@@ -254,6 +256,27 @@ const server = http.createServer(async (req, res) => {
       const items = passages.map((x) => ({ id: x.id, text: clean ? x.text : x.text.split(/\s+/).slice(0, 9).join(" ").replace(/[,.;:]$/, "") + " (Gemini note)." }));
       return send(res, 200, { candidates: [{ content: { parts: [{ text: JSON.stringify(items) }] } }] });
     }
+    // ---- fake ORCID public API and OpenAlex (set PAPERCARDS_ORCID_BASE / PAPERCARDS_OPENALEX_BASE to this server)
+    const orcidM = p.match(/^\/v3\.0\/([\dX-]{19})\/(works|person)$/);
+    if (orcidM) {
+      if (orcidM[2] === "person") return send(res, 200, { name: { "given-names": { value: "Ada" }, "family-name": { value: "Researcher" } } });
+      const w = (title, year, doi, journal) => ({ "work-summary": [{ title: { title: { value: title } }, "publication-date": { year: { value: String(year) } }, "journal-title": { value: journal }, type: "journal-article", "external-ids": doi ? { "external-id": [{ "external-id-type": "doi", "external-id-value": doi }] } : null }] });
+      return send(res, 200, { group: [
+        w("Foundation models for oral cancer histology", 2026, "10.5555/oscc.2026.1", "Journal of Pathology Informatics"),
+        w("Sleep disorder treatments in epilepsy: a network meta-analysis", 2025, "10.5555/sleep.2025.7", "Epilepsia"),
+        w("Highly accurate protein structure prediction with AlphaFold", 2021, "10.1038/s41586-021-03819-2", "Nature"),
+        w("A poster without a DOI", 2024, null, "AAN Annual Meeting"),
+      ] });
+    }
+    if (p === "/works" && url.searchParams.get("filter")?.startsWith("doi:")) {
+      return send(res, 200, { results: [{ doi: "https://doi.org/10.5555/oscc.2026.1", display_name: "Foundation models for oral cancer histology", publication_year: 2026, authorships: [{ author: { display_name: "Ada Researcher" } }, { author: { display_name: "Amrit Pal Singh" } }], biblio: { volume: "17", first_page: "100", last_page: "112" } }], meta: {} });
+    }
+    if (p === "/works" && url.searchParams.get("filter")?.startsWith("author.id:")) {
+      return send(res, 200, { results: [{ doi: null, display_name: "OpenAlex-only paper", publication_year: 2023, authorships: [{ author: { display_name: "Ada Researcher" } }], primary_location: { source: { display_name: "PLOS ONE" } } }], meta: { next_cursor: null } });
+    }
+    if (p === "/authors") {
+      return send(res, 200, { results: [{ id: "https://openalex.org/A123", display_name: "Ada Researcher", works_count: 1, orcid: null, last_known_institutions: [{ display_name: "Example Institute" }] }] });
+    }
     // ---- auth
     if (p === "/auth/v1/.well-known/jwks.json") return send(res, 200, { keys: [] });
     if (p === "/auth/v1/otp") return send(res, 200, {});
@@ -323,6 +346,12 @@ const server = http.createServer(async (req, res) => {
         const list = Array.isArray(parsed) ? parsed : [parsed];
         rows = [];
         for (const r of list) {
+          const existing = /merge-duplicates/.test(prefer) && r.id && db[table].find((x) => x.id === r.id);
+          if (existing) {
+            Object.assign(existing, r, { updated_at: now() });
+            rows.push(existing);
+            continue;
+          }
           try {
             rows.push(insertRow(table, r, uid));
           } catch (e) {

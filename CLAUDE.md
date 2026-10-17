@@ -112,7 +112,7 @@ RLS: every table `owner_id = auth.uid()` for select/insert/update/delete; join t
 ### Status against the spec (MVP built 13 Oct 2026)
 | Feature | Status |
 |---|---|
-| Cards and decks (collections), drag cards onto collections | Done |
+| Cards and decks (called collections in the database, Decks in the UI), drag cards onto decks | Done |
 | Editable sectioned summary, renamable sections, images | Done |
 | PDF viewer with highlighting into sections, click bullet → jump | Done |
 | Deck-level summary | Partial: editable summary text per collection |
@@ -126,16 +126,20 @@ RLS: every table `owner_id = auth.uid()` for select/insert/update/delete; join t
 | Redesign: "Washi & Ai" system, folded-card status, note-coverage strip, dark mode, mobile | Done |
 | Legacy prototype import | Done |
 | Sharing cards/decks, shared lab decks | Next |
-| Label graph (Obsidian-style) | Next |
+| Research graph (`/graph`, `?deck=`): decks as hubs, shared papers bridge decks, tag/author threads, full paper list | Done (15-17 Oct) |
+| My publications: ORCID import, OpenAlex name search, Google Scholar/ResearchGate via BibTeX, "Yours" seal | Done (migration `20261015000000_publications_trash.sql`, applied) |
+| Trash: soft delete (`papers.deleted_at`), Undo, restore, purged by the app after 30 days | Done |
+| AI notes from highlights (Gemini via `GEMINI_API_KEY`), PDF text cleanup, enlarge a section | Done |
+| Reading shelf (Kanban by status), page transitions, guest demo sign-in | Done |
 | Excel import, Google Scholar alert ingestion | Later |
 | Desktop app (Tauri), mobile | Later |
 
 ### Next up (proposed order)
 1. Share a deck read-only by link (new `shares` table + RLS), and "share without notes" option.
-2. Label/collection graph view (force-directed).
+2. Graph: save node positions; link papers by citations (OpenAlex referenced_works).
 3. Deck summary auto-compiled from member cards (counts by study type/year + per-card one-liners) and deck PDF export.
 4. Notes images → storage bucket; drag-select figure capture from PDF.
-5. Excel/CSV import with column mapping; BibTeX/RIS import (for Zotero/Mendeley migrants).
+5. Excel/CSV import with column mapping; general BibTeX/RIS library import (the BibTeX parser in `src/lib/publications.ts` is ready to reuse).
 6. PWA install + offline cache; then Tauri desktop.
 
 ### Visual identity

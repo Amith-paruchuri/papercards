@@ -18,7 +18,7 @@ export function PaperCard({
   static: isStatic,
   compact,
 }: {
-  paper: Pick<LibraryPaper, "id" | "title" | "authors" | "year" | "journal" | "abstract" | "status" | "priority" | "pdf_path"> & Partial<Pick<LibraryPaper, "paper_tags" | "note_sections">>;
+  paper: Pick<LibraryPaper, "id" | "title" | "authors" | "year" | "journal" | "abstract" | "status" | "priority" | "pdf_path"> & Partial<Pick<LibraryPaper, "paper_tags" | "note_sections" | "is_mine">>;
   tagById?: Map<string, Tag>;
   selected?: boolean;
   onOpen?: (e: React.MouseEvent | React.KeyboardEvent) => void;
@@ -104,6 +104,11 @@ export function PaperCard({
           )}
           {paper.pdf_path && <FilePdf size={16} aria-label="PDF attached" />}
         </span>
+        {paper.is_mine && (
+          <span className="mine-seal" title="Your publication" aria-label="Your publication">
+            Yours
+          </span>
+        )}
         <span className="status-word">{STATUS_LABELS[paper.status]}</span>
       </div>
       {sections.length > 0 && (

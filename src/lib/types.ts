@@ -41,8 +41,24 @@ export interface Paper extends PaperMeta {
   pdf_sha256: string | null;
   pdf_size: number | null;
   legacy_id: string | null;
+  /** The user is an author of this paper (shown under My publications). */
+  is_mine: boolean;
+  /** Set when moved to Trash; purged for good after TRASH_DAYS. */
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export const TRASH_DAYS = 30;
+
+export interface Profile {
+  id: string;
+  display_name: string | null;
+  orcid: string | null;
+  scholar_url: string | null;
+  researchgate_url: string | null;
+  openalex_id: string | null;
+  publications_synced_at: string | null;
 }
 
 /** Paper row as loaded for the library, with membership ids embedded. */

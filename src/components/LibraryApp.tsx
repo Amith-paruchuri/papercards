@@ -5,7 +5,11 @@ import Link from "next/link";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { nameCard, navigateWithTransition } from "@/lib/motion-fx";
 import {
+  ArrowCounterClockwise,
   ArrowRight,
+  ArrowsClockwise,
+  GraduationCap,
+  Graph,
   ArrowSquareIn,
   BookOpen,
   BookmarkSimple,
@@ -35,6 +39,7 @@ import { PaperCard } from "./PaperCard";
 import { SAMPLE_CARDS } from "@/lib/sample-cards";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { seedDemoLibrary } from "@/lib/demo";
+import { PublicationsModal } from "./PublicationsModal";
 import { errorMessage, useToast } from "./Toast";
 import { ThemeSelect } from "./ThemeSelect";
 import { COMMAND_EVENT, type Command } from "./CommandPalette";
@@ -43,7 +48,13 @@ import {
   addTagToPapers,
   createCollection,
   deleteCollection,
-  deletePaper,
+  deleteForever,
+  getProfile,
+  listTrash,
+  purgeOldTrash,
+  restorePapers,
+  setMine,
+  trashPapers,
   deleteTag,
   ensureTag,
   listCollections,
@@ -56,7 +67,7 @@ import {
 } from "@/lib/data";
 import { formatAuthorShort } from "@/lib/citations";
 import { exportBibTeX, exportCSV, exportRIS, slug } from "@/lib/download";
-import { STATUS_LABELS, STUDY_TYPE_LABELS, type Collection, type LibraryPaper, type PaperStatus, type StudyType, type Tag } from "@/lib/types";
+import { STATUS_LABELS, STUDY_TYPE_LABELS, TRASH_DAYS, type Collection, type LibraryPaper, type Paper, type PaperStatus, type Profile, type StudyType, type Tag } from "@/lib/types";
 
 type Sort = "updated" | "added" | "year" | "title" | "priority";
 const STATUSES: PaperStatus[] = ["to_read", "reading", "read", "annotated"];
@@ -98,6 +109,9 @@ export function LibraryApp() {
   const [firstDrag, setFirstDrag] = useState(false);
   const [guest, setGuest] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [trash, setTrash] = useState<Paper[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [pubModal, setPubModal] = useState<null | { autoSync?: boolean }>(null);
   const reduceMotion = useReducedMotion();
   // Arriving back from a paper inside a page transition: show cards at once so the morph lands on a visible card.
   const [arrivedViaTransition] = useState(() => typeof document !== "undefined" && document.documentElement.classList.contains("vt-paper"));
@@ -126,7 +140,24 @@ export function LibraryApp() {
     setLoadError(errorMessage(e));
     setPapers((prev) => prev ?? []);
   }, []);
-  const load = useCallback(() => Promise.all([listLibrary(), listCollections(), listTags()]).then(apply, fail), [apply, fail]);
+  const loadTrash = useCallback(() => listTrash().then(setTrash, () => {}), []);
+  const load = useCallback(
+    () => Promise.all([Promise.all([listLibrary(), listCollections(), listTags()]).then(apply, fail), loadTrash()]),
+    [apply, fail, loadTrash]
+  );
+
+  // Trash older than TRASH_DAYS goes for good; then load what's left in Trash, and the profile links.
+  useEffect(() => {
+    let alive = true;
+    purgeOldTrash()
+      .catch(() => 0)
+      .then(() => listTrash())
+      .then((t) => alive && setTrash(t), () => {});
+    getProfile().then((p) => alive && setProfile(p), () => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -255,9 +286,10 @@ export function LibraryApp() {
   const currentTag = scope.startsWith("tag:") ? tagById.get(scope.slice(4)) ?? null : null;
 
   const counts = useMemo(() => {
-    const c = { all: 0, unfiled: 0, status: {} as Record<string, number>, col: {} as Record<string, number>, tag: {} as Record<string, number> };
+    const c = { all: 0, unfiled: 0, mine: 0, status: {} as Record<string, number>, col: {} as Record<string, number>, tag: {} as Record<string, number> };
     for (const p of papers ?? []) {
       c.all++;
+      if (p.is_mine) c.mine++;
       c.status[p.status] = (c.status[p.status] || 0) + 1;
       if (!p.collection_papers.length) c.unfiled++;
       for (const cp of p.collection_papers) c.col[cp.collection_id] = (c.col[cp.collection_id] || 0) + 1;
@@ -269,6 +301,7 @@ export function LibraryApp() {
   const scoped = (() => {
     let list = papers ?? [];
     if (scope === "unfiled") list = list.filter((p) => !p.collection_papers.length);
+    else if (scope === "mine") list = list.filter((p) => p.is_mine);
     else if (scope.startsWith("status:")) list = list.filter((p) => p.status === scope.slice(7));
     else if (scope.startsWith("col:")) list = list.filter((p) => p.collection_papers.some((c) => c.collection_id === scope.slice(4)));
     else if (scope.startsWith("tag:")) list = list.filter((p) => p.paper_tags.some((t) => t.tag_id === scope.slice(4)));
@@ -303,6 +336,10 @@ export function LibraryApp() {
       ? "Library"
       : scope === "unfiled"
         ? "Unfiled"
+        : scope === "mine"
+          ? "My publications"
+          : scope === "trash"
+            ? "Trash"
         : scope.startsWith("status:")
           ? STATUS_LABELS[scope.slice(7) as PaperStatus]
           : currentCollection?.name ?? (currentTag ? currentTag.name : "Library");
@@ -368,15 +405,15 @@ export function LibraryApp() {
   }
 
   async function onRenameCollection(c: Collection) {
-    const name = prompt("Rename collection", c.name);
+    const name = prompt("Rename deck", c.name);
     if (!name || name.trim() === c.name) return;
-    await bulk(() => updateCollection(c.id, { name: name.trim() }).then(() => undefined), "Collection renamed.");
+    await bulk(() => updateCollection(c.id, { name: name.trim() }).then(() => undefined), "Deck renamed.");
   }
 
   async function onDeleteCollection(c: Collection) {
-    if (!confirm(`Delete the collection “${c.name}”? The papers stay in your library.`)) return;
+    if (!confirm(`Delete the deck “${c.name}”? The papers stay in your library.`)) return;
     if (scope === `col:${c.id}`) setParam("scope", null);
-    await bulk(() => deleteCollection(c.id), "Collection deleted. Papers kept.");
+    await bulk(() => deleteCollection(c.id), "Deck deleted. Papers kept.");
   }
 
   async function onRenameTag(t: Tag) {
@@ -392,12 +429,46 @@ export function LibraryApp() {
   }
 
   async function onDeleteSelected() {
-    const n = selectedPapers.length;
-    if (!confirm(`Delete ${n} ${n > 1 ? "papers" : "paper"} with their PDFs, notes and highlights? This can't be undone.`)) return;
-    await bulk(async () => {
-      for (const p of selectedPapers) await deletePaper(p);
+    const ids = [...selected];
+    const n = ids.length;
+    try {
+      await trashPapers(ids);
       setSelected(new Set());
-    }, `Deleted ${n} ${n > 1 ? "papers" : "paper"}.`);
+      await load();
+      toast(`Moved ${n} ${n > 1 ? "papers" : "paper"} to Trash. They stay there for ${TRASH_DAYS} days.`, {
+        action: { label: "Undo", onClick: () => void restorePapers(ids).then(load) },
+      });
+    } catch (e) {
+      toast(errorMessage(e), { err: true });
+    }
+  }
+
+  async function onMarkMine(mine: boolean) {
+    const ids = [...selected];
+    await bulk(() => setMine(ids, mine), mine ? `Added ${ids.length} to My publications.` : `Removed ${ids.length} from My publications.`);
+  }
+
+  async function onRestore(ids: string[]) {
+    try {
+      await restorePapers(ids);
+      await load();
+      toast(ids.length === 1 ? "Restored to your library." : `Restored ${ids.length} papers.`);
+    } catch (e) {
+      toast(errorMessage(e), { err: true });
+    }
+  }
+
+  async function onDeleteForever(list: Paper[]) {
+    const n = list.length;
+    if (!n) return;
+    if (!confirm(n === 1 ? `Delete “${list[0].title}” for good, with its PDF, notes and highlights? This can't be undone.` : `Delete ${n} papers for good, with their PDFs, notes and highlights? This can't be undone.`)) return;
+    try {
+      await deleteForever(list);
+      await loadTrash();
+      toast(n === 1 ? "Deleted for good." : `Deleted ${n} papers for good.`);
+    } catch (e) {
+      toast(errorMessage(e), { err: true });
+    }
   }
 
   async function onTagSelected() {
@@ -414,7 +485,7 @@ export function LibraryApp() {
     try {
       const c = await updateCollection(currentCollection.id, { summary: text });
       setCollections((cs) => cs.map((x) => (x.id === c.id ? c : x)));
-      toast("Collection note saved.");
+      toast("Deck note saved.");
     } catch (e) {
       toast(errorMessage(e), { err: true });
     }
@@ -481,7 +552,7 @@ export function LibraryApp() {
     </div>
   );
 
-  const empty = papers !== null && papers.length === 0 && !loadError;
+  const empty = papers !== null && papers.length === 0 && !loadError && scope !== "trash" && scope !== "mine";
 
   return (
     <div
@@ -509,7 +580,7 @@ export function LibraryApp() {
       }}
     >
       <header className="topbar">
-        <button className="icon-btn mobile-only" aria-label="Show collections and filters" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen((o) => !o)}>
+        <button className="icon-btn mobile-only" aria-label="Show decks and filters" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen((o) => !o)}>
           <List size={20} />
         </button>
         <Brand />
@@ -569,6 +640,9 @@ export function LibraryApp() {
               </div>
             )}
           </div>
+          <Link className="btn ghost small graph-link" href="/graph" title="Research graph: see how your papers and decks connect">
+            <Graph size={16} /> <span className="desktop-only">Graph</span>
+          </Link>
           <ThemeSelect />
           <button className="btn" onClick={() => setAdding({})}>
             <Plus size={16} weight="bold" />
@@ -583,10 +657,12 @@ export function LibraryApp() {
           {navItem("all", <Books size={17} className="nav-icon" />, "All papers", counts.all)}
           {STATUSES.map((s) => navItem(`status:${s}`, STATUS_ICON[s], STATUS_LABELS[s], counts.status[s]))}
           {navItem("unfiled", <Tray size={17} className="nav-icon" />, "Unfiled", counts.unfiled)}
+          {navItem("mine", <GraduationCap size={17} className="nav-icon" />, "My publications", counts.mine)}
+          {navItem("trash", <Trash size={17} className="nav-icon" />, "Trash", trash.length)}
 
           <div className="side-heading">
-            Collections
-            <button className="icon-btn sm" title="New collection" aria-label="New collection" onClick={() => setNewCol("")}>
+            Decks
+            <button className="icon-btn sm" title="New deck" aria-label="New deck" onClick={() => setNewCol("")}>
               <Plus size={14} />
             </button>
           </div>
@@ -611,8 +687,8 @@ export function LibraryApp() {
             <input
               className="inline-input"
               autoFocus
-              aria-label="New collection name"
-              placeholder="Collection name…"
+              aria-label="New deck name"
+              placeholder="Deck name…"
               value={newCol}
               onChange={(e) => setNewCol(e.target.value)}
               onKeyDown={(e) => {
@@ -624,7 +700,7 @@ export function LibraryApp() {
           ) : (
             collections.length === 0 && (
               <button className="add-link" onClick={() => setNewCol("")}>
-                <Plus size={14} /> New collection
+                <Plus size={14} /> New deck
               </button>
             )
           )}
@@ -652,7 +728,7 @@ export function LibraryApp() {
           {empty && seeding ? (
             <div className="seeding" aria-busy="true" aria-live="polite">
               <h1 className="lib-title">Setting up your demo library…</h1>
-              <p className="lib-summary">Five landmark papers, with notes, tags and collections already filled in.</p>
+              <p className="lib-summary">Five landmark papers, with notes, tags and decks already filled in.</p>
               <div className="card-grid" style={{ marginTop: 22 }}>
                 {[0, 1, 2, 3, 4].map((i) => (
                   <div key={i} className="skeleton" style={{ animationDelay: `${i * 0.08}s` }} />
@@ -667,6 +743,8 @@ export function LibraryApp() {
               onSamples={() => void loadDemo()}
               seeding={seeding}
             />
+          ) : scope === "trash" ? (
+            <TrashView trash={trash} onRestore={(ids) => void onRestore(ids)} onDeleteForever={(list) => void onDeleteForever(list)} />
           ) : (
             <>
               {guest && <GuestBanner />}
@@ -676,6 +754,33 @@ export function LibraryApp() {
                   <p className="lib-summary" aria-live="polite">
                     {summary}
                   </p>
+                  {scope === "mine" && (
+                    <div className="mine-bar">
+                      {profile?.orcid && (
+                        <a className="chip" href={`https://orcid.org/${profile.orcid}`} target="_blank" rel="noreferrer">
+                          ORCID {profile.orcid}
+                        </a>
+                      )}
+                      {profile?.scholar_url && (
+                        <a className="chip" href={profile.scholar_url} target="_blank" rel="noreferrer">
+                          Google Scholar
+                        </a>
+                      )}
+                      {profile?.researchgate_url && (
+                        <a className="chip" href={profile.researchgate_url} target="_blank" rel="noreferrer">
+                          ResearchGate
+                        </a>
+                      )}
+                      {(profile?.orcid || profile?.openalex_id) && (
+                        <button className="chip" onClick={() => setPubModal({ autoSync: true })}>
+                          <ArrowsClockwise size={13} /> Check for new
+                        </button>
+                      )}
+                      <button className="chip on" onClick={() => setPubModal({})}>
+                        <GraduationCap size={14} /> {profile?.orcid || profile?.openalex_id || profile?.scholar_url ? "Link or import more" : "Link ORCID, Scholar or ResearchGate"}
+                      </button>
+                    </div>
+                  )}
                   {scope === "all" && papers && papers.length > 0 && (
                     <div className="status-meter" role="group" aria-label="Reading progress">
                       <div className="meter-bar" aria-hidden="true">
@@ -718,13 +823,20 @@ export function LibraryApp() {
               </div>
 
               {currentCollection && (
+                <div className="deck-tools">
+                  <Link className="chip" href={`/graph?deck=${currentCollection.id}`}>
+                    <Graph size={14} /> See this deck as a graph
+                  </Link>
+                </div>
+              )}
+              {currentCollection && (
                 <div className="deck-summary">
                   <textarea
                     key={currentCollection.id}
                     defaultValue={currentCollection.summary}
-                    placeholder="What ties these papers together? Write the takeaway for this collection…"
+                    placeholder="What ties these papers together? Write the takeaway for this deck…"
                     onBlur={(e) => void onCollectionSummary(e.target.value)}
-                    aria-label="Collection note"
+                    aria-label="Deck note"
                     rows={2}
                   />
                 </div>
@@ -793,11 +905,11 @@ export function LibraryApp() {
                     value=""
                     onChange={(e) => {
                       const v = e.target.value;
-                      if (v) void bulk(() => addPapersToCollection([...selected], v), "Filed in collection.");
+                      if (v) void bulk(() => addPapersToCollection([...selected], v), "Filed in deck.");
                     }}
-                    aria-label="Add selected to a collection"
+                    aria-label="Add selected to a deck"
                   >
-                    <option value="">Add to collection</option>
+                    <option value="">Add to deck</option>
                     {collections.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
@@ -825,11 +937,20 @@ export function LibraryApp() {
                   <button className="btn ghost small" onClick={() => exportBibTeX(selectedPapers, tags, exportName)}>
                     BibTeX
                   </button>
+                  {selectedPapers.every((p) => p.is_mine) ? (
+                    <button className="btn ghost small" onClick={() => void onMarkMine(false)}>
+                      <GraduationCap size={14} /> Not mine
+                    </button>
+                  ) : (
+                    <button className="btn ghost small" onClick={() => void onMarkMine(true)} title="Add to My publications">
+                      <GraduationCap size={14} /> Mine
+                    </button>
+                  )}
                   <span className="spacer" />
                   <button className="btn ghost small" onClick={() => setSelected(new Set(visible.map((p) => p.id)))}>
                     Select all {visible.length}
                   </button>
-                  <button className="icon-btn" title="Delete selected" aria-label="Delete selected papers" onClick={onDeleteSelected}>
+                  <button className="icon-btn" title="Move to Trash" aria-label="Move selected papers to Trash" onClick={onDeleteSelected}>
                     <Trash size={17} />
                   </button>
                   <button className="icon-btn" aria-label="Clear selection" onClick={() => setSelected(new Set())}>
@@ -860,11 +981,22 @@ export function LibraryApp() {
                     </>
                   ) : currentCollection ? (
                     <>
-                      <h2>This collection is empty</h2>
+                      <h2>This deck is empty</h2>
                       Drag cards onto “{currentCollection.name}” in the sidebar, or add papers straight into it.
                       <div>
                         <button className="btn" onClick={() => setAdding({})}>
                           <Plus size={16} weight="bold" /> Add papers here
+                        </button>
+                      </div>
+                    </>
+                  ) : scope === "mine" ? (
+                    <>
+                      <h2>Your publications live here</h2>
+                      Link your ORCID, find yourself by name, or bring a Google Scholar or ResearchGate export, and your papers appear as cards you can cite and
+                      share. You can also select any card in your library and mark it as yours.
+                      <div>
+                        <button className="btn" onClick={() => setPubModal({})}>
+                          <GraduationCap size={16} /> Find my publications
                         </button>
                       </div>
                     </>
@@ -1011,6 +1143,20 @@ export function LibraryApp() {
         </div>
       )}
 
+      {pubModal && (
+        <PublicationsModal
+          profile={profile}
+          autoSync={pubModal.autoSync}
+          onClose={() => setPubModal(null)}
+          onImported={(msg) => {
+            setPubModal(null);
+            toast(msg);
+            void load();
+            getProfile().then(setProfile, () => {});
+          }}
+        />
+      )}
+
       {adding && (
         <AddPaperModal
           collectionId={currentCollection?.id ?? null}
@@ -1094,5 +1240,78 @@ function GuestBanner() {
         </button>
       )}
     </div>
+  );
+}
+
+function TrashView({ trash, onRestore, onDeleteForever }: { trash: Paper[]; onRestore: (ids: string[]) => void; onDeleteForever: (list: Paper[]) => void }) {
+  const [now] = useState(() => Date.now());
+  const daysLeft = (p: Paper) => {
+    const gone = new Date(p.deleted_at!).getTime() + TRASH_DAYS * 86400000;
+    return Math.max(0, Math.ceil((gone - now) / 86400000));
+  };
+  return (
+    <>
+      <div className="lib-head">
+        <div className="lib-head-text">
+          <h1 className="lib-title">Trash</h1>
+          <p className="lib-summary">
+            {trash.length
+              ? `${trash.length} ${trash.length === 1 ? "paper" : "papers"}. Each is deleted for good ${TRASH_DAYS} days after you moved it here.`
+              : `Nothing in Trash. Deleted papers wait here for ${TRASH_DAYS} days, with their notes and PDFs, in case you change your mind.`}
+          </p>
+        </div>
+        {trash.length > 0 && (
+          <div className="row">
+            <button className="btn ghost" onClick={() => onRestore(trash.map((p) => p.id))}>
+              <ArrowCounterClockwise size={15} /> Restore all
+            </button>
+            <button className="btn danger" onClick={() => onDeleteForever(trash)}>
+              <Trash size={15} /> Empty Trash
+            </button>
+          </div>
+        )}
+      </div>
+      {trash.length > 0 && (
+        <div className="table-wrap">
+          <table className="list-table trash-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Authors</th>
+                <th>Year</th>
+                <th>Deleted for good in</th>
+                <th>
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {trash.map((p) => {
+                const d = daysLeft(p);
+                return (
+                  <tr key={p.id}>
+                    <td>
+                      <span className="t">{p.title}</span>
+                      {p.pdf_path && <span className="hint"> with PDF</span>}
+                    </td>
+                    <td>{formatAuthorShort(p.authors)}</td>
+                    <td className="tnum">{p.year ?? ""}</td>
+                    <td className={`tnum${d <= 3 ? " soon" : ""}`}>{d === 0 ? "today" : `${d} ${d === 1 ? "day" : "days"}`}</td>
+                    <td className="trash-actions">
+                      <button className="btn ghost small" onClick={() => onRestore([p.id])}>
+                        <ArrowCounterClockwise size={14} /> Restore
+                      </button>
+                      <button className="icon-btn" title="Delete for good" aria-label={`Delete “${p.title}” for good`} onClick={() => onDeleteForever([p])}>
+                        <Trash size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }
