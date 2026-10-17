@@ -3,7 +3,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Bug, CircleNotch, Heart, Lightbulb, Notebook, ChatCircleDots, ArrowCounterClockwise } from "@phosphor-icons/react";
 import { OrigamiMark } from "@/components/Logo";
-import { KINDS, RATING_LABELS, ROLES, type Kind, type Product } from "@/lib/feedback";
+import { KINDS, RATING_LABELS, ROLES, SURVEY, questionsFor, type Answers, type Kind, type Product, type Question } from "@/lib/feedback";
 
 const KIND_ICON = { bug: Bug, idea: Lightbulb, love: Heart, other: ChatCircleDots } as const;
 const PROMPT: Record<Kind, string> = {
@@ -12,6 +12,40 @@ const PROMPT: Record<Kind, string> = {
   love: "What's working well for you? We'll make sure to keep it.",
   other: "Tell us anything: questions, confusion, first impressions…",
 };
+
+function QuestionBlock({ q, value, onChange }: { q: Question; value: string | string[] | undefined; onChange: (v: string | string[] | undefined) => void }) {
+  const picked = Array.isArray(value) ? value : value ? [value] : [];
+  return (
+    <motion.div className="fb-q" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.22 }}>
+      <p className="fb-q-label" id={`q-${q.id}`}>
+        {q.label}
+        {q.multi && <span className="fb-opt"> pick all that apply</span>}
+      </p>
+      <div className="fb-q-opts" role={q.multi ? "group" : "radiogroup"} aria-labelledby={`q-${q.id}`}>
+        {q.options.map((o) => {
+          const on = picked.includes(o);
+          return (
+            <button
+              type="button"
+              key={o}
+              role={q.multi ? "checkbox" : "radio"}
+              aria-checked={on}
+              className={`fb-pill${on ? " on" : ""}`}
+              onClick={() => {
+                if (q.multi) {
+                  const next = on ? picked.filter((x) => x !== o) : [...picked, o];
+                  onChange(next.length ? next : undefined);
+                } else onChange(on ? undefined : o);
+              }}
+            >
+              {o}
+            </button>
+          );
+        })}
+      </div>
+    </motion.div>
+  );
+}
 
 function ChotiMark() {
   return (
@@ -26,6 +60,7 @@ export function FeedbackForm({ initialProduct }: { initialProduct: Product | nul
   const [rating, setRating] = useState<number | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   const [kind, setKind] = useState<Kind>("idea");
+  const [answers, setAnswers] = useState<Answers>({});
   const [message, setMessage] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -38,14 +73,16 @@ export function FeedbackForm({ initialProduct }: { initialProduct: Product | nul
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!product) return setError("Choose which app this is about.");
-    if (message.trim().length < 3) return setError("Write a few words so we know what you mean.");
+    const shownQs = questionsFor(product, answers);
+    const given = Object.fromEntries(shownQs.filter((q) => answers[q.id] !== undefined).map((q) => [q.id, answers[q.id]]));
+    if (message.trim().length < 3 && !Object.keys(given).length) return setError("Answer a question or write a few words so we know what you think.");
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/feedback", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ product, kind, rating, message, name, email, role, website, page: document.referrer || null }),
+        body: JSON.stringify({ product, kind: message.trim() ? kind : "other", rating, message, answers: given, name, email, role, website, page: document.referrer || null }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(body.error || "We couldn't send that. Try again in a minute.");
@@ -61,11 +98,16 @@ export function FeedbackForm({ initialProduct }: { initialProduct: Product | nul
   function again() {
     setSent(false);
     setMessage("");
+    setAnswers({});
     setRating(null);
     setKind("idea");
   }
 
   const shown = hover ?? rating;
+  const visibleQs = questionsFor(product, answers);
+  const answeredCount = visibleQs.filter((q) => answers[q.id] !== undefined).length;
+  const groups = product === "both" ? (["papercards", "choticopy"] as const) : product ? ([product] as const) : [];
+  let step = 1;
 
   return (
     <AnimatePresence mode="wait">
@@ -95,7 +137,7 @@ export function FeedbackForm({ initialProduct }: { initialProduct: Product | nul
         <motion.form key="form" className="fb-form" onSubmit={submit} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, y: -10 }}>
           <fieldset className="fb-step">
             <legend>
-              <span className="fb-num">1</span> Which app is this about?
+              <span className="fb-num">{step++}</span> Which app is this about?
             </legend>
             <div className="fb-apps" role="radiogroup" aria-label="App">
               {(
@@ -118,9 +160,42 @@ export function FeedbackForm({ initialProduct }: { initialProduct: Product | nul
             </button>
           </fieldset>
 
+          {product && (
+            <fieldset className="fb-step fb-survey">
+              <legend>
+                <span className="fb-num">{step++}</span> A few quick questions <span className="fb-opt">tap your answers · {answeredCount} of {visibleQs.length}</span>
+              </legend>
+              {groups.map((g) => (
+                <div key={g} className="fb-survey-group">
+                  {product === "both" && <h4 className="fb-survey-title">{SURVEY[g].title}</h4>}
+                  <AnimatePresence initial={false}>
+                    {SURVEY[g].questions
+                      .filter((q) => visibleQs.includes(q))
+                      .map((q) => (
+                        <QuestionBlock
+                          key={q.id}
+                          q={q}
+                          value={answers[q.id]}
+                          onChange={(v) => {
+                            setError(null);
+                            setAnswers((a) => {
+                              const next = { ...a };
+                              if (v === undefined) delete next[q.id];
+                              else next[q.id] = v;
+                              return next;
+                            });
+                          }}
+                        />
+                      ))}
+                  </AnimatePresence>
+                </div>
+              ))}
+            </fieldset>
+          )}
+
           <fieldset className="fb-step">
             <legend>
-              <span className="fb-num">2</span> How&apos;s it going so far? <span className="fb-opt">optional</span>
+              <span className="fb-num">{step++}</span> How&apos;s it going so far? <span className="fb-opt">optional</span>
             </legend>
             <div className="fb-rating" role="radiogroup" aria-label="Rating" onMouseLeave={() => setHover(null)}>
               {[1, 2, 3, 4, 5].map((n) => (
@@ -147,7 +222,8 @@ export function FeedbackForm({ initialProduct }: { initialProduct: Product | nul
 
           <fieldset className="fb-step">
             <legend>
-              <span className="fb-num">3</span> What would you like to share?
+              <span className="fb-num">{step++}</span> {answeredCount ? "Anything else to tell us?" : "What would you like to share?"}
+              {answeredCount > 0 && <span className="fb-opt">optional</span>}
             </legend>
             <div className="fb-kinds" role="radiogroup" aria-label="Kind of feedback">
               {(Object.keys(KINDS) as Kind[]).map((k) => {
@@ -168,7 +244,7 @@ export function FeedbackForm({ initialProduct }: { initialProduct: Product | nul
 
           <fieldset className="fb-step">
             <legend>
-              <span className="fb-num">4</span> About you <span className="fb-opt">optional, only if you&apos;d like a reply</span>
+              <span className="fb-num">{step++}</span> About you <span className="fb-opt">optional, only if you&apos;d like a reply</span>
             </legend>
             <div className="fb-grid">
               <div>

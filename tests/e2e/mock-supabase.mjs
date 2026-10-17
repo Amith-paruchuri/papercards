@@ -381,8 +381,8 @@ const server = http.createServer(async (req, res) => {
       const admin = uid && users.get(uid)?.email === "demo@papercards.test";
       if (req.method === "POST") {
         const r = JSON.parse((await body(req)).toString() || "{}");
-        if (!r.message || r.message.length < 3 || r.status || r.admin_note) return send(res, 403, { code: "42501", message: "new row violates row-level security policy" });
-        feedback.unshift({ id: randomUUID(), created_at: now(), updated_at: now(), status: "new", admin_note: null, user_id: uid ?? null, rating: null, name: null, email: null, role: null, page: null, user_agent: null, ...r });
+        if (((r.message || "").length < 3 && !Object.keys(r.answers || {}).length) || r.status || r.admin_note) return send(res, 403, { code: "42501", message: "new row violates row-level security policy" });
+        feedback.unshift({ id: randomUUID(), created_at: now(), updated_at: now(), status: "new", admin_note: null, user_id: uid ?? null, rating: null, answers: {}, name: null, email: null, role: null, page: null, user_agent: null, ...r });
         return send(res, 201, "");
       }
       if (!admin) return req.method === "GET" ? send(res, 200, [], { "Content-Range": "*/0" }) : send(res, 204);

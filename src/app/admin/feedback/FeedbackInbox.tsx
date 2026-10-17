@@ -3,7 +3,62 @@ import { useMemo, useState } from "react";
 import { Bug, ChatCircleDots, Copy, DownloadSimple, EnvelopeSimple, Heart, Lightbulb, MagnifyingGlass, Trash } from "@phosphor-icons/react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { downloadText } from "@/lib/download";
-import { feedbackCsv, KINDS, PRODUCTS, RATING_LABELS, STATUSES, type FeedbackRow, type Kind, type Product, type Status } from "@/lib/feedback";
+import { feedbackCsv, KINDS, PRODUCTS, questionById, RATING_LABELS, STATUSES, SURVEY, type FeedbackRow, type Kind, type Product, type Status } from "@/lib/feedback";
+
+/** Short labels for the answers shown on each response. */
+const SHORT: Record<string, string> = {
+  cc_anki: "Uses Anki",
+  cc_vs_anki: "Versus Anki",
+  cc_freetime: "Free-time revision",
+  cc_adopt: "Will use Choti Copy",
+  cc_recommend: "Recommend",
+  pc_tool: "Uses now",
+  pc_vs_tool: "Versus current tool",
+  pc_adopt: "Will use PaperCards",
+  pc_sections: "Section notes useful",
+  pc_recommend: "Recommend",
+};
+
+function SurveySummary({ rows, product }: { rows: FeedbackRow[]; product: Product | "all" }) {
+  const sets = product === "all" ? (["papercards", "choticopy"] as const) : product === "both" ? (["papercards", "choticopy"] as const) : ([product] as const);
+  const cards = sets.flatMap((set) =>
+    SURVEY[set].questions.map((q) => {
+      const answered = rows.filter((r) => r.answers?.[q.id] !== undefined);
+      const counts = q.options.map((o) => ({ o, n: answered.filter((r) => [r.answers[q.id]].flat().includes(o)).length }));
+      return { q, set, total: answered.length, counts };
+    })
+  ).filter((c) => c.total > 0);
+  if (!cards.length) return null;
+  return (
+    <details className="survey-toggle" open>
+      <summary className="field-label" style={{ cursor: "pointer" }}>
+        Question results ({cards.length} answered questions)
+      </summary>
+      <div className="survey-summary">
+        {cards.map(({ q, set, total, counts }) => (
+          <div className="ss-card" key={q.id}>
+            <h3>{q.label}</h3>
+            <span className="hint">
+              {PRODUCTS[set]} · {total} {total === 1 ? "answer" : "answers"}
+              {q.multi ? " · could pick several" : ""}
+            </span>
+            {counts.map(({ o, n }) => (
+              <div className="ss-row" key={o}>
+                <span>{o}</span>
+                <b>
+                  {n} · {Math.round((n / total) * 100)}%
+                </b>
+                <span className="ss-bar">
+                  <i style={{ width: `${(n / total) * 100}%` }} />
+                </span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
 import { useToast } from "@/components/Toast";
 
 const KIND_ICON = { bug: Bug, idea: Lightbulb, love: Heart, other: ChatCircleDots } as const;
@@ -24,7 +79,7 @@ export function FeedbackInbox({ initial }: { initial: FeedbackRow[] }) {
           (product === "all" || r.product === product || r.product === "both") &&
           (kind === "all" || r.kind === kind) &&
           (status === "all" || (status === "open" ? !["done", "wont_do"].includes(r.status) : r.status === status)) &&
-          (!q || `${r.message} ${r.name ?? ""} ${r.email ?? ""} ${r.admin_note ?? ""}`.toLowerCase().includes(q.toLowerCase()))
+          (!q || `${r.message} ${Object.values(r.answers ?? {}).flat().join(" ")} ${r.name ?? ""} ${r.email ?? ""} ${r.admin_note ?? ""}`.toLowerCase().includes(q.toLowerCase()))
       ),
     [rows, product, kind, status, q]
   );
@@ -107,6 +162,8 @@ export function FeedbackInbox({ initial }: { initial: FeedbackRow[] }) {
         </label>
       </div>
 
+      <SurveySummary rows={shown} product={product} />
+
       {!shown.length ? (
         <div className="inbox-empty">
           {rows.length ? "Nothing matches these filters." : "No feedback yet. Share the form link: people's messages will appear here."}
@@ -131,7 +188,17 @@ export function FeedbackInbox({ initial }: { initial: FeedbackRow[] }) {
                   <span className="grow" />
                   <time className="hint">{when(r.created_at)}</time>
                 </div>
-                <p className="ii-msg">{r.message}</p>
+                {r.message && <p className="ii-msg">{r.message}</p>}
+                {Object.keys(r.answers ?? {}).length > 0 && (
+                  <dl className="ii-answers">
+                    {Object.entries(r.answers).map(([id, a]) => (
+                      <div key={id}>
+                        <dt>{SHORT[id] ?? questionById(id)?.label ?? id}</dt>
+                        <dd>{Array.isArray(a) ? a.join(", ") : a}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
                 <div className="ii-who hint">
                   {[r.name, r.role].filter(Boolean).join(" · ") || "Anonymous"}
                   {r.email && (

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { checkEmail, checkPassword, friendlyAuthError, safeNext } from "../src/lib/auth-validate.ts";
-import { feedbackCsv, validateFeedback } from "../src/lib/feedback.ts";
+import { cleanAnswers, feedbackCsv, questionsFor, validateFeedback } from "../src/lib/feedback.ts";
 
 test("checkEmail accepts real addresses and catches typos and throwaway inboxes", () => {
   assert.equal(checkEmail("ada@aiims.edu"), null);
@@ -48,8 +48,26 @@ test("validateFeedback cleans input and rejects bad rows", () => {
 
 test("feedbackCsv quotes commas, quotes and new lines", () => {
   const csv = feedbackCsv([
-    { id: "1", created_at: "2026-10-17T12:00:00Z", updated_at: "", product: "papercards", kind: "idea", rating: 5, message: 'Add "Word", please\nthanks', name: null, email: null, role: null, page: null, status: "new", admin_note: null, user_agent: null, user_id: null },
+    { answers: { pc_tool: ["Zotero", "EndNote"] }, id: "1", created_at: "2026-10-17T12:00:00Z", updated_at: "", product: "papercards", kind: "idea", rating: 5, message: 'Add "Word", please\nthanks', name: null, email: null, role: null, page: null, status: "new", admin_note: null, user_agent: null, user_id: null },
   ]);
   assert.ok(csv.includes('"Add ""Word"", please\nthanks"'));
   assert.ok(csv.startsWith("﻿\"Date\""));
+});
+
+test("per-app questions: follow-ups appear only when relevant, answers are cleaned", () => {
+  assert.equal(questionsFor("choticopy", {}).some((q) => q.id === "cc_vs_anki"), false);
+  assert.equal(questionsFor("choticopy", { cc_anki: "Yes, Anki" }).some((q) => q.id === "cc_vs_anki"), true);
+  assert.equal(questionsFor("papercards", { pc_tool: ["Nothing in particular"] }).some((q) => q.id === "pc_vs_tool"), false);
+  assert.equal(questionsFor("both", {}).length, 8);
+  const a = cleanAnswers("papercards", { pc_tool: ["Zotero", "Hacker"], pc_vs_tool: "Much better", pc_adopt: "Sure!", cc_anki: "Yes, Anki", junk: "x" });
+  assert.deepEqual(a, { pc_tool: ["Zotero"], pc_vs_tool: "Much better" });
+  // A follow-up without its trigger is dropped.
+  assert.deepEqual(cleanAnswers("choticopy", { cc_vs_anki: "Much better" }), {});
+});
+
+test("answers alone are enough to send feedback", () => {
+  const ok = validateFeedback({ product: "choticopy", kind: "idea", message: "", answers: { cc_freetime: "Definitely" } });
+  assert.ok(typeof ok !== "string");
+  assert.deepEqual(ok.answers, { cc_freetime: "Definitely" });
+  assert.equal(typeof validateFeedback({ product: "choticopy", kind: "idea", message: "", answers: { cc_freetime: "Nope" } }), "string");
 });
