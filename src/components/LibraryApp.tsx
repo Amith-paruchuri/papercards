@@ -42,6 +42,7 @@ import { AddPaperModal } from "./AddPaperModal";
 import { PaperCard } from "./PaperCard";
 import { SAMPLE_CARDS } from "@/lib/sample-cards";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { checkEmail, checkPassword, friendlyAuthError } from "@/lib/auth-validate";
 import { seedDemoLibrary } from "@/lib/demo";
 import { PublicationsModal } from "./PublicationsModal";
 import { OrganiseModal } from "./OrganiseModal";
@@ -1301,40 +1302,67 @@ function FirstRun({ over, onFiles, onDois, onSamples, seeding }: { over: boolean
   );
 }
 
+/** Guests keep their demo library by turning the guest account into a real one (email + password).
+ *  With "Confirm email" off in Supabase this is instant; if confirmation is on, they get a link instead. */
 function GuestBanner() {
   const toast = useToast();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   async function keep(e: React.FormEvent) {
     e.preventDefault();
+    const addr = email.trim().toLowerCase();
+    const bad = checkEmail(addr) ?? checkPassword(password);
+    if (bad) return setError(bad);
+    setError(null);
     setBusy(true);
-    const { error } = await supabaseBrowser().auth.updateUser(
-      { email: email.trim() },
+    const sb = supabaseBrowser();
+    const { data, error } = await sb.auth.updateUser(
+      { email: addr },
       { emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent("/account?kept=1")}` }
     );
-    setBusy(false);
-    if (error) toast(`${error.message} Check the address and try again.`, { err: true });
-    else {
-      toast(`Check ${email.trim()} and open the link to keep this library.`);
-      setOpen(false);
+    if (error) {
+      setBusy(false);
+      return setError(/already|registered|exists/i.test(error.message) ? "That email already has a PaperCards account. Sign in with it instead." : friendlyAuthError(error));
     }
+    if (data.user?.email?.toLowerCase() !== addr) {
+      // Email confirmation is switched on: the account is kept once they open the link.
+      setBusy(false);
+      setOpen(false);
+      return toast(`Check ${addr} and open the link to keep this library. Then set your password under Account.`);
+    }
+    const pw = await sb.auth.updateUser({ password });
+    setBusy(false);
+    if (pw.error) return setError(friendlyAuthError(pw.error));
+    toast(`Library kept. Sign in anywhere with ${addr}.`);
+    setOpen(false);
+    router.refresh();
+    window.setTimeout(() => window.location.reload(), 600);
   }
   return (
     <div className="guest-banner" role="note">
       <span className="gb-dot" aria-hidden="true" />
       <span className="gb-text">
-        <strong>You’re trying PaperCards as a guest.</strong> This library lives only in this browser until you add your email.
+        <strong>You&rsquo;re trying PaperCards as a guest.</strong> This library lives only in this browser. Create an account to keep it on every device.
       </span>
       {open ? (
         <form className="gb-form" onSubmit={keep}>
-          <input type="email" required autoComplete="email" spellCheck={false} placeholder="you@institute.edu…" aria-label="Email to keep this library" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input type="email" required autoComplete="email" spellCheck={false} placeholder="you@institute.edu…" aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input type="password" required autoComplete="new-password" placeholder="Password (8+, with a number)…" aria-label="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
           <button className="btn small" disabled={busy}>
-            {busy ? "Sending…" : "Send link"}
+            {busy ? "Saving…" : "Keep my library"}
           </button>
+          {error && (
+            <span className="error-text gb-error" role="alert">
+              {error}
+            </span>
+          )}
         </form>
       ) : (
-        <button className="btn ghost small" onClick={() => setOpen(true)}>
+        <button className="btn small" onClick={() => setOpen(true)}>
           Keep this library
         </button>
       )}

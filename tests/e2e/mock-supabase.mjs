@@ -308,6 +308,10 @@ const server = http.createServer(async (req, res) => {
         const nid = randomUUID();
         users.set(nid, { email: b.email, password: b.password, confirmed: false });
         db.profiles.push({ id: nid, display_name: b.email.split("@")[0], created_at: now(), updated_at: now() });
+        if (process.env.MOCK_AUTOCONFIRM === "1") {
+          users.get(nid).confirmed = true;
+          return send(res, 200, sessionFor(nid));
+        }
         return send(res, 200, { ...userJson(nid), identities: [{ provider: "email" }] });
       }
       const nid = randomUUID();
@@ -332,7 +336,11 @@ const server = http.createServer(async (req, res) => {
       if (!uid || !users.has(uid)) return send(res, 401, { msg: "invalid JWT" });
       const b = JSON.parse((await body(req)).toString() || "{}");
       if (b.password) users.get(uid).password = b.password;
-      if (b.email) users.get(uid).email = b.email;
+      if (b.email) {
+        if ([...users.values()].some((x) => x.email === b.email)) return send(res, 422, { code: "email_exists", msg: "A user with this email address has already been registered" });
+        users.get(uid).email = b.email;
+        users.get(uid).anon = false;
+      }
       return send(res, 200, userJson(uid));
     }
     if (p === "/auth/v1/token" && url.searchParams.get("grant_type") === "password") {
@@ -517,6 +525,67 @@ function seed() {
     }
   }
 }
+
+// Extra demo library for marketing screenshots: MOCK_RICH=1. Real, well-known papers (bibliographic facts only).
+function seedRich() {
+  const u = DEMO_UID;
+  const daysAgo = (d) => new Date(Date.now() - d * 86400000).toISOString();
+  const byName = (n) => db.collections.find((c) => c.name === n);
+  const col = (name) => byName(name) ?? insertRow("collections", { name, summary: "" }, u);
+  const tagBy = (n) => db.tags.find((t) => t.name === n) ?? insertRow("tags", { name: n }, u);
+  const D = {
+    path: col("Computational pathology"), fm: col("Foundation models"), jc: col("Journal club, October"),
+    epi: col("Sleep in epilepsy"), heme: col("Hematologic malignancy genomics"), sc: col("Single-cell and spatial"), img: col("Medical imaging AI"),
+  };
+  const A = (...names) => names.map((n) => { const [given, family] = n.includes(" ") ? [n.split(" ").slice(0, -1).join(" "), n.split(" ").slice(-1)[0]] : ["", n]; return { family, given }; });
+  const R = [
+    ["Towards a general-purpose foundation model for computational pathology", A("Richard J. Chen", "Faisal Mahmood"), 2024, "Nature Medicine", ["path", "fm"], ["WSI", "transformers"], "annotated"],
+    ["A visual-language foundation model for computational pathology", A("Ming Y. Lu", "Faisal Mahmood"), 2024, "Nature Medicine", ["path", "fm"], ["WSI"], "read"],
+    ["A whole-slide foundation model for digital pathology from real-world data", A("Hanwen Xu", "Hoifung Poon"), 2024, "Nature", ["path", "fm"], ["WSI", "transformers"], "reading"],
+    ["Virchow: a million-slide digital pathology foundation model", A("Eugene Vorontsov", "Thomas J. Fuchs"), 2024, "Nature Medicine", ["path", "fm"], ["WSI"], "to_read"],
+    ["Pan-cancer integrative histology-genomic analysis via multimodal deep learning", A("Richard J. Chen", "Faisal Mahmood"), 2022, "Cancer Cell", ["path", "heme"], ["WSI", "MIL"], "read"],
+    ["Attention-based deep multiple instance learning", A("Maximilian Ilse", "Jakub Tomczak", "Max Welling"), 2018, "ICML", ["path"], ["MIL"], "annotated"],
+    ["Interpretable survival prediction for colorectal cancer using deep learning", A("Ellery Wulczyn", "David F. Steiner"), 2021, "npj Digital Medicine", ["path", "img"], ["WSI"], "to_read"],
+    ["Deep learning for oral cancer detection from histopathology images", A("Santisudha Panigrahi", "Tripti Swarnkar"), 2020, "Oral Oncology", ["path"], ["OSCC"], "to_read"],
+    ["An image is worth 16x16 words: transformers for image recognition at scale", A("Alexey Dosovitskiy", "Neil Houlsby"), 2021, "ICLR", ["fm", "img"], ["transformers"], "read"],
+    ["Language models are few-shot learners", A("Tom Brown", "Dario Amodei"), 2020, "NeurIPS", ["fm"], ["transformers"], "read"],
+    ["Emerging properties in self-supervised vision transformers", A("Mathilde Caron", "Armand Joulin"), 2021, "ICCV", ["fm", "img"], ["transformers"], "annotated"],
+    ["Learning transferable visual models from natural language supervision", A("Alec Radford", "Ilya Sutskever"), 2021, "ICML", ["fm"], ["transformers"], "reading"],
+    ["Large language models encode clinical knowledge", A("Karan Singhal", "Vivek Natarajan"), 2023, "Nature", ["fm", "jc"], ["transformers"], "read"],
+    ["Segment anything", A("Alexander Kirillov", "Ross Girshick"), 2023, "ICCV", ["fm", "img"], [], "to_read"],
+    ["Dermatologist-level classification of skin cancer with deep neural networks", A("Andre Esteva", "Sebastian Thrun"), 2017, "Nature", ["img", "jc"], [], "read"],
+    ["International evaluation of an AI system for breast cancer screening", A("Scott Mayer McKinney", "Shravya Shetty"), 2020, "Nature", ["img"], [], "annotated"],
+    ["CheXNet: radiologist-level pneumonia detection on chest X-rays", A("Pranav Rajpurkar", "Andrew Y. Ng"), 2017, "arXiv", ["img"], [], "read"],
+    ["U-Net: convolutional networks for biomedical image segmentation", A("Olaf Ronneberger", "Thomas Brox"), 2015, "MICCAI", ["img", "path"], [], "read"],
+    ["Sleep and epilepsy: a bidirectional relationship", A("Milena Pavlova", "Sanjeev V. Kothare"), 2021, "Neurologic Clinics", ["epi"], ["sleep"], "annotated"],
+    ["Obstructive sleep apnea in adults with epilepsy", A("Beth A. Malow", "Ronald D. Chervin"), 2000, "Neurology", ["epi"], ["sleep"], "read"],
+    ["Melatonin for epilepsy: a systematic review", A("Ivana Brigo", "Raffaele Nardone"), 2016, "Cochrane Database of Systematic Reviews", ["epi"], ["sleep", "meta-analysis"], "reading"],
+    ["CPAP therapy and seizure control in epilepsy with sleep apnea", A("Anne Vendrame", "Sandra Auerbach"), 2014, "Epilepsy & Behavior", ["epi"], ["sleep"], "to_read"],
+    ["Network meta-analysis: a primer for clinicians", A("Georgia Salanti"), 2012, "Research Synthesis Methods", ["epi", "jc"], ["meta-analysis"], "read"],
+    ["The PRISMA 2020 statement: an updated guideline for reporting systematic reviews", A("Matthew J. Page", "David Moher"), 2021, "BMJ", ["epi"], ["meta-analysis"], "read"],
+    ["Seizure detection from EEG using deep learning", A("Ian Covert", "Jenna Wiens"), 2019, "Machine Learning for Healthcare", ["epi", "img"], ["EEG"], "to_read"],
+    ["Genomic classification and prognosis in acute myeloid leukemia", A("Elli Papaemmanuil", "Peter J. Campbell"), 2016, "New England Journal of Medicine", ["heme"], ["AML"], "annotated"],
+    ["Clonal hematopoiesis and blood-cancer risk inferred from blood DNA sequence", A("Giulio Genovese", "Steven A. McCarroll"), 2014, "New England Journal of Medicine", ["heme"], ["CHIP"], "read"],
+    ["Age-related clonal hematopoiesis associated with adverse outcomes", A("Siddhartha Jaiswal", "Benjamin L. Ebert"), 2014, "New England Journal of Medicine", ["heme", "jc"], ["CHIP"], "read"],
+    ["The 5th edition of the WHO classification of haematolymphoid tumours", A("Joseph D. Khoury", "Ayalew Tefferi"), 2022, "Leukemia", ["heme"], ["AML"], "reading"],
+    ["Single-cell RNA-seq reveals AML hierarchies relevant to disease progression", A("Peter van Galen", "Bradley E. Bernstein"), 2019, "Cell", ["heme", "sc"], ["AML", "single-cell"], "to_read"],
+    ["Comprehensive integration of single-cell data", A("Tim Stuart", "Rahul Satija"), 2019, "Cell", ["sc"], ["single-cell"], "read"],
+    ["Spatially resolved transcriptomics in the tumour microenvironment", A("Ludvig Larsson", "Joakim Lundeberg"), 2021, "Nature Reviews Cancer", ["sc", "path"], ["single-cell"], "to_read"],
+    ["Mapping the human cell atlas", A("Aviv Regev", "Sarah Teichmann"), 2017, "eLife", ["sc"], ["single-cell"], "read"],
+    ["Predicting gene expression from histology with deep learning", A("Bryan He", "James Zou"), 2020, "Nature Biomedical Engineering", ["sc", "path"], ["WSI", "single-cell"], "annotated"],
+  ];
+  const st = { annotated: 3, read: 2, reading: 1, to_read: 0 };
+  R.forEach(([title, authors, year, journal, decks, tags, status], i) => {
+    const paper = insertRow("papers", { title, authors, year, journal, status, priority: (i * 7) % 4, study_type: /review|primer|statement|classification of haemato/i.test(title) ? "review" : "original" }, u);
+    paper.created_at = daysAgo(i * 0.7 + 2);
+    paper.updated_at = daysAgo(i * 0.5 + 1);
+    decks.forEach((d) => insertRow("collection_papers", { collection_id: D[d].id, paper_id: paper.id }, u));
+    tags.forEach((t) => insertRow("paper_tags", { paper_id: paper.id, tag_id: tagBy(t).id }, u));
+    const secs = db.note_sections.filter((s) => s.paper_id === paper.id);
+    secs.slice(0, st[status] + (status === "annotated" ? 1 : 0)).forEach((sec) => (sec.content_html = "<ul><li>Key finding noted.</li></ul>"));
+  });
+}
 if (process.env.MOCK_EMPTY !== "1") seed();
+if (process.env.MOCK_RICH === "1") seedRich();
 
 server.listen(PORT, () => console.log(`mock supabase on http://localhost:${PORT} (demo user ${DEMO_UID})`));
