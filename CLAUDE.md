@@ -131,6 +131,10 @@ RLS: every table `owner_id = auth.uid()` for select/insert/update/delete; join t
 | Trash: soft delete (`papers.deleted_at`), Undo, restore, purged by the app after 30 days | Done |
 | AI notes from highlights (Gemini via `GEMINI_API_KEY`), PDF text cleanup, enlarge a section | Done |
 | Reading shelf (Kanban by status), page transitions, guest demo sign-in | Done |
+| Card bar (Save / Download PDF or Word / Print), erase-highlight sync with Undo, own thoughts, Ask AI | Done |
+| AI settings: optional own Google AI Studio key (browser only, sent per request in `x-papercards-ai-key`) | Done |
+| Auth: email + password, 6-digit signup code, forgot/reset password, Account page, Google button (auto-shows when the Supabase Google provider is on), guest demo | Done |
+| Feedback: public `/feedback` (PaperCards + Choti Copy), API `/api/feedback`, admin inbox `/admin/feedback`, table `feedback` + `feedback_admins` (migration `20261017000000_feedback.sql`, applied) | Done |
 | Excel import, Google Scholar alert ingestion | Later |
 | Desktop app (Tauri), mobile | Later |
 
@@ -142,8 +146,13 @@ RLS: every table `owner_id = auth.uid()` for select/insert/update/delete; join t
 5. Excel/CSV import with column mapping; general BibTeX/RIS library import (the BibTeX parser in `src/lib/publications.ts` is ready to reuse).
 6. PWA install + offline cache; then Tauri desktop.
 
+### Launch checklist (auth email)
+- Supabase "Confirm email" is ON but there is no custom SMTP yet: Supabase's built-in sender only reaches team members (about 2 emails an hour). Before inviting users, add custom SMTP (e.g. Resend) under Authentication > Emails > SMTP Settings, and put `{{ .Token }}` in the "Confirm signup" template so the 6-digit code appears.
+- Google sign-in: create a Google OAuth client for PaperCards (never reuse Choti Copy's), redirect URI `https://dymjhpcehoaflvpvhwwe.supabase.co/auth/v1/callback`, then enable Google under Authentication > Sign In / Providers. The button appears on /login by itself within 5 minutes.
+- Feedback admins are the emails in `public.feedback_admins`; add more with an insert in the SQL editor.
+
 ### Visual identity
-See `DESIGN.md`. In short: washi surfaces, sumi ink, indigo accent, vermilion seal; the folded index card is the signature element; section colours Intro `#5ec4ee`, Methods `#7ed67e`, Results `#f0c463`, Discussion `#f0879b`.
+See `DESIGN.md`. Logo (Oct 2026): three index cards fanned in sumi ink over a vermilion brush sun, front card stamped with a tick (`src/components/Logo.tsx`, `public/icon*.png|svg`, themed by `--logo-ink/--logo-paper/--logo-sun`). Washi surfaces, sumi ink, indigo accent, vermilion seal; section colours Intro `#5ec4ee`, Methods `#7ed67e`, Results `#f0c463`, Discussion `#f0879b`.
 
 ## 6. Legacy prototype
 
