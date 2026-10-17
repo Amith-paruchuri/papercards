@@ -9,14 +9,14 @@ import {
   FolderSimple,
   FolderSimplePlus,
   MagnifyingGlass,
-  MoonStars, Graph } from "@phosphor-icons/react";
+  MoonStars, Graph, Sparkle } from "@phosphor-icons/react";
 import { listCollections, listLibrary } from "@/lib/data";
 import { formatAuthorShort } from "@/lib/citations";
 import { applyTheme, nextTheme, readTheme } from "@/lib/theme";
 import type { Collection, LibraryPaper } from "@/lib/types";
 
 export const COMMAND_EVENT = "papercards:command";
-export type Command = "add" | "new-collection" | "export-bib";
+export type Command = "add" | "new-collection" | "export-bib" | "organise";
 
 export function runCommand(cmd: Command) {
   window.dispatchEvent(new CustomEvent(COMMAND_EVENT, { detail: cmd }));
@@ -81,6 +81,7 @@ export function CommandPalette() {
       { id: "a-add", group: "Actions", label: "Add papers", sub: "N", icon: <FilePlus size={18} />, run: () => go("add") },
       { id: "a-col", group: "Actions", label: "New deck", icon: <FolderSimplePlus size={18} />, run: () => go("new-collection") },
       { id: "a-bib", group: "Actions", label: "Export library as BibTeX", icon: <DownloadSimple size={18} />, run: () => go("export-bib") },
+      { id: "a-org", group: "Actions", label: "Organise papers into decks with AI", icon: <Sparkle size={18} />, run: () => go("organise") },
       { id: "a-graph", group: "Actions", label: "Open the research graph", icon: <Graph size={18} />, run: () => (setOpen(false), router.push("/graph")) },
       { id: "a-imp", group: "Actions", label: "Import from the old Paper Cards", icon: <ArrowSquareIn size={18} />, run: () => (setOpen(false), router.push("/import")) },
       { id: "a-theme", group: "Actions", label: "Switch theme", icon: <MoonStars size={18} />, run: () => applyTheme(nextTheme(readTheme())) },

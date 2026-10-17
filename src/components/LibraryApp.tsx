@@ -9,6 +9,8 @@ import {
   ArrowRight,
   ArrowsClockwise,
   GraduationCap,
+  CaretRight,
+  Sparkle,
   Graph,
   ArrowSquareIn,
   BookOpen,
@@ -40,6 +42,7 @@ import { SAMPLE_CARDS } from "@/lib/sample-cards";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { seedDemoLibrary } from "@/lib/demo";
 import { PublicationsModal } from "./PublicationsModal";
+import { OrganiseModal } from "./OrganiseModal";
 import { errorMessage, useToast } from "./Toast";
 import { ThemeSelect } from "./ThemeSelect";
 import { COMMAND_EVENT, type Command } from "./CommandPalette";
@@ -112,6 +115,25 @@ export function LibraryApp() {
   const [trash, setTrash] = useState<Paper[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [pubModal, setPubModal] = useState<null | { autoSync?: boolean }>(null);
+  const [organising, setOrganising] = useState(false);
+  // Reading-status rows fold into one expandable row; the choice is remembered on this device.
+  const [statusOpen, setStatusOpen] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        if (localStorage.getItem("papercards_status_open") === "1") setStatusOpen(true);
+      } catch {}
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  function toggleStatus() {
+    setStatusOpen((o) => {
+      try {
+        localStorage.setItem("papercards_status_open", o ? "0" : "1");
+      } catch {}
+      return !o;
+    });
+  }
   const reduceMotion = useReducedMotion();
   // Arriving back from a paper inside a page transition: show cards at once so the morph lands on a visible card.
   const [arrivedViaTransition] = useState(() => typeof document !== "undefined" && document.documentElement.classList.contains("vt-paper"));
@@ -243,6 +265,7 @@ export function LibraryApp() {
   function runCmd(cmd: Command) {
     if (cmd === "add") setAdding({});
     else if (cmd === "new-collection") setNewCol("");
+    else if (cmd === "organise") setOrganising(true);
     else if (cmd === "export-bib" && papersRef.current) exportBibTeX(papersRef.current, tagsRef.current, "papercards-library");
   }
   useEffect(() => {
@@ -335,7 +358,7 @@ export function LibraryApp() {
     scope === "all"
       ? "Library"
       : scope === "unfiled"
-        ? "Unfiled"
+        ? "Not in a deck"
         : scope === "mine"
           ? "My publications"
           : scope === "trash"
@@ -655,8 +678,23 @@ export function LibraryApp() {
         <nav className={`sidebar${sidebarOpen ? " open" : ""}`} aria-label="Library sections">
           <div className="side-heading">Library</div>
           {navItem("all", <Books size={17} className="nav-icon" />, "All papers", counts.all)}
-          {STATUSES.map((s) => navItem(`status:${s}`, STATUS_ICON[s], STATUS_LABELS[s], counts.status[s]))}
-          {navItem("unfiled", <Tray size={17} className="nav-icon" />, "Unfiled", counts.unfiled)}
+          <div className={`nav-row status-group${scope.startsWith("status:") && !statusOpen ? " active" : ""}`}>
+            <button className="nav-item" aria-expanded={statusOpen || scope.startsWith("status:")} aria-controls="status-rows" onClick={toggleStatus}>
+              <CaretRight size={13} className="nav-icon caret" />
+              <span className="label-text">Reading status</span>
+              <span className="status-mini" aria-hidden="true">
+                {STATUSES.map((s) => (counts.status[s] ? <i key={s} style={{ background: `var(--st-${s})`, flexGrow: counts.status[s] }} /> : null))}
+              </span>
+            </button>
+          </div>
+          {(statusOpen || scope.startsWith("status:")) && (
+            <div id="status-rows" className="nav-sub">
+              {STATUSES.map((s) => navItem(`status:${s}`, STATUS_ICON[s], STATUS_LABELS[s], counts.status[s]))}
+            </div>
+          )}
+          <div title="Papers you haven't put in any deck yet">
+            {navItem("unfiled", <Tray size={17} className="nav-icon" />, "Not in a deck", counts.unfiled)}
+          </div>
           {navItem("mine", <GraduationCap size={17} className="nav-icon" />, "My publications", counts.mine)}
           {navItem("trash", <Trash size={17} className="nav-icon" />, "Trash", trash.length)}
 
@@ -703,6 +741,12 @@ export function LibraryApp() {
                 <Plus size={14} /> New deck
               </button>
             )
+          )}
+          {(papers?.length ?? 0) >= 2 && (
+            <button className="add-link ai-link" onClick={() => setOrganising(true)}>
+              <Sparkle size={14} weight="fill" /> {collections.length ? "Organise with AI" : "Let AI make my decks"}
+              {counts.unfiled > 0 && <span className="ai-count tnum">{counts.unfiled} not in a deck</span>}
+            </button>
           )}
 
           {tags.length > 0 && <div className="side-heading">Tags</div>}
@@ -1141,6 +1185,20 @@ export function LibraryApp() {
             <div style={{ font: "500 22px/1.3 var(--font-serif)", marginTop: 8 }}>Drop to add{currentCollection ? ` to ${currentCollection.name}` : " to your library"}</div>
           </div>
         </div>
+      )}
+
+      {organising && papers && (
+        <OrganiseModal
+          papers={papers}
+          collections={collections}
+          tags={tags}
+          onClose={() => setOrganising(false)}
+          onApplied={(msg, undo) => {
+            setOrganising(false);
+            void load();
+            toast(msg, { action: { label: "Undo", onClick: () => void undo().then(load) }, ms: 9000 });
+          }}
+        />
       )}
 
       {pubModal && (

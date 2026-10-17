@@ -251,6 +251,18 @@ const server = http.createServer(async (req, res) => {
       if (process.env.MOCK_GEMINI_BUSY && p.includes(process.env.MOCK_GEMINI_BUSY)) return send(res, 503, { error: { code: 503, status: "UNAVAILABLE", message: "high demand" } });
       const b = JSON.parse((await body(req)).toString() || "{}");
       const user = b.contents?.[0]?.parts?.[0]?.text || "";
+      if (/research librarian/.test(b.systemInstruction?.parts?.[0]?.text || "")) {
+        // fake deck organiser: pathology-ish titles to the existing pathology deck (or a new one), the rest by theme
+        const q = JSON.parse(user);
+        const path = q.existingDecks.find((d) => /patholog/i.test(d.name));
+        const isPath = (p) => /patholog|slide|histolog|microsatellite|carcinoma/i.test(p.title);
+        const decks = [
+          { name: "Computational pathology", existingRef: path?.ref ?? null, why: "Deep learning on histology slides.", paperRefs: q.papers.filter(isPath).map((p) => p.ref) },
+          { name: "Foundations of deep learning", existingRef: null, why: "Core architectures the field builds on.", paperRefs: q.papers.filter((p) => /attention|residual|protein/i.test(p.title)).map((p) => p.ref) },
+          { name: "Genome editing", existingRef: null, why: "CRISPR biology.", paperRefs: q.papers.filter((p) => /DNA|CRISPR/i.test(p.title)).map((p) => p.ref) },
+        ];
+        return send(res, 200, { candidates: [{ content: { parts: [{ text: JSON.stringify({ decks }) }] } }] });
+      }
       const passages = JSON.parse(user.slice(user.indexOf("[")));
       const clean = /Keep the author's wording/.test(b.systemInstruction?.parts?.[0]?.text || "");
       const items = passages.map((x) => ({ id: x.id, text: clean ? x.text : x.text.split(/\s+/).slice(0, 9).join(" ").replace(/[,.;:]$/, "") + " (Gemini note)." }));

@@ -190,3 +190,29 @@ test("research graph: decks are hubs, shared papers bridge decks", () => {
   const ga = buildGraph(papers, cols, [], { authorThreads: true });
   assert.equal(ga.links.filter((l) => l.kind === "author").length, 6);
 });
+
+import { buildDeckPrompt, parseDeckReply, validateDeckRequest } from "../src/lib/ai-decks.ts";
+
+test("AI deck proposals are checked against the library", () => {
+  const req = validateDeckRequest({
+    scope: "all",
+    papers: [
+      { ref: "p1", title: "Pathology foundation model", tags: [], decks: ["Computational pathology"] },
+      { ref: "p2", title: "Whole slide MIL", tags: ["WSI"], decks: [] },
+      { ref: "p3", title: "Sleep in epilepsy NMA", tags: [], decks: [] },
+    ],
+    decks: [{ ref: "d1", name: "Computational pathology", size: 1 }],
+  });
+  assert.ok(typeof req !== "string");
+  assert.match(buildDeckPrompt(req).system, /1 to 3 decks/);
+  const reply = '```json\n{"decks":[' +
+    '{"name":"computational pathology","existingRef":null,"why":"WSI work","paperRefs":["p1","p2","p9"]},' +
+    '{"name":"\\"Sleep in epilepsy\\"","existingRef":null,"why":"Sleep","paperRefs":["p3"]},' +
+    '{"name":"Empty","existingRef":null,"why":"","paperRefs":["p404"]}]}\n```';
+  const out = parseDeckReply(reply, req);
+  // matched the existing deck by name, skipped p1 (already in it) and the unknown p9
+  assert.deepEqual(out[0], { name: "Computational pathology", existingRef: "d1", why: "WSI work", paperRefs: ["p2"] });
+  assert.deepEqual(out[1], { name: "Sleep in epilepsy", existingRef: null, why: "Sleep", paperRefs: ["p3"] });
+  assert.equal(out.length, 2);
+  assert.equal(validateDeckRequest({ papers: [{ ref: "p1", title: "x" }] }), "Add at least two papers before organising them into decks.");
+});

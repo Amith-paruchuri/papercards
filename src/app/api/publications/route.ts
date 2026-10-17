@@ -68,7 +68,9 @@ export async function GET(request: NextRequest) {
       ]);
       const base = fromOrcidWorks(worksJson);
       const extra = await openAlexWorksByDoi(base.map((w) => w.doi).filter((d): d is string => Boolean(d)));
-      const name = [person?.name?.["given-names"]?.value, person?.name?.["family-name"]?.value].filter(Boolean).join(" ") || null;
+      const raw = [person?.name?.["given-names"]?.value, person?.name?.["family-name"]?.value].filter(Boolean).join(" ");
+      // Some ORCID records are in capitals ("AMITH PARUCHURI"); show them as names.
+      const name = (raw === raw.toUpperCase() ? raw.toLowerCase().replace(/(^|[\s'-])\p{L}/gu, (m) => m.toUpperCase()) : raw) || null;
       // Works OpenAlex doesn't know still list the ORCID owner, who is by definition an author.
       const works = enrichWorks(base, extra)
         .map((w) => (w.authors.length || !name ? w : { ...w, authors: [splitName(name)] }))

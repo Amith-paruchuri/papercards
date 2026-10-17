@@ -6,7 +6,7 @@ import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, f
 import { select } from "d3-selection";
 import "d3-transition"; // adds .transition() to selections for smooth zooms
 import { zoom as d3zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
-import { ArrowLeft, ArrowsIn, CaretDown, CornersOut, MagnifyingGlass, Minus, Plus, X } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowsIn, CaretDown, CornersOut, MagnifyingGlass, Minus, Plus, Sparkle, X } from "@phosphor-icons/react";
 import { Brand } from "./Logo";
 import { ThemeSelect } from "./ThemeSelect";
 import { errorMessage } from "./Toast";
@@ -321,12 +321,25 @@ export function GraphApp() {
                 Status
               </button>
             </div>
-            <button className={`chip${tagThreads ? " on" : ""}`} aria-pressed={tagThreads} onClick={() => setTagThreads((v) => !v)}>
-              <i className="thread-swatch tag" /> Shared tags
+            <button
+              className={`chip${tagThreads ? " on" : ""}`}
+              aria-pressed={tagThreads}
+              title="Draw a dashed line between papers that carry the same tag"
+              onClick={() => setTagThreads((v) => !v)}
+            >
+              <i className="thread-swatch tag" /> Link same tag
             </button>
-            <button className={`chip${authorThreads ? " on" : ""}`} aria-pressed={authorThreads} onClick={() => setAuthorThreads((v) => !v)}>
-              <i className="thread-swatch author" /> Shared authors
+            <button
+              className={`chip${authorThreads ? " on" : ""}`}
+              aria-pressed={authorThreads}
+              title="Draw a dotted line between papers written by the same person, even if they sit in different decks"
+              onClick={() => setAuthorThreads((v) => !v)}
+            >
+              <i className="thread-swatch author" /> Link same author
             </button>
+            <Link className="chip ai-chip" href="/?do=organise" title="Let AI sort your papers into decks; the graph redraws from the result">
+              <Sparkle size={13} weight="fill" /> Organise with AI
+            </Link>
           </div>
 
           <div className="graph-zoom" role="group" aria-label="Zoom">
