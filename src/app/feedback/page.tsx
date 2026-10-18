@@ -6,7 +6,7 @@ import type { Product } from "@/lib/feedback";
 
 export const metadata: Metadata = {
   title: "Share feedback",
-  description: "Tell us what's working and what isn't in PaperCards and Choti Copy. We read every message.",
+  description: "Tell me what's working and what isn't in PaperCards and Choti Copy. I read every message.",
 };
 
 export default async function FeedbackPage({ searchParams }: { searchParams: Promise<{ product?: string }> }) {
@@ -22,20 +22,20 @@ export default async function FeedbackPage({ searchParams }: { searchParams: Pro
         </Link>
       </header>
       <section className="fb-hero">
-        <p className="fb-kicker">Early access · help us shape it</p>
+        <p className="fb-kicker">Early access · help me shape it</p>
         <h1>
-          Tell us what you <em>really</em> think.
+          Tell me what you <em>really</em> think.
         </h1>
         <p className="fb-lede">
-          PaperCards and Choti Copy are brand new, and you&apos;re among the first people using them. A bug, a wish, a moment of confusion, or something you loved: it
-          all helps. Two minutes is plenty.
+          Hi, I&apos;m <strong>Amith Paruchuri</strong>, a final-year MBBS student. I built both PaperCards and Choti Copy, and you&apos;re among the first people using
+          them. A bug, a wish, a moment of confusion, or something you loved: it all helps. Two minutes is plenty.
         </p>
       </section>
       <section className="fb-card">
         <FeedbackForm initialProduct={initial} />
       </section>
       <footer className="fb-foot hint">
-        We use what you send only to improve these apps. <Link href="/privacy">Privacy</Link>
+        I use what you send only to improve these apps. <Link href="/privacy">Privacy</Link>
       </footer>
     </main>
   );

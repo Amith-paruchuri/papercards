@@ -89,7 +89,7 @@ export function validateFeedback(body: unknown): FeedbackInput | string {
   if (!(typeof b.kind === "string" && b.kind in KINDS)) return "Choose what kind of feedback this is.";
   const answers = cleanAnswers(b.product as Product, b.answers);
   const message = str(b.message, 5000) ?? "";
-  if (message.length < 3 && !Object.keys(answers).length) return "Answer a question or write a few words so we know what you think.";
+  if (message.length < 3 && !Object.keys(answers).length) return "Answer a question or write a few words so I know what you think.";
   const rating = typeof b.rating === "number" && Number.isInteger(b.rating) && b.rating >= 1 && b.rating <= 5 ? b.rating : null;
   const email = str(b.email, 254);
   if (email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) return "That email address doesn't look right, or leave it empty.";

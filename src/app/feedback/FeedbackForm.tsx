@@ -9,8 +9,8 @@ const KIND_ICON = { bug: Bug, idea: Lightbulb, love: Heart, other: ChatCircleDot
 const PROMPT: Record<Kind, string> = {
   bug: "What did you do, what did you expect, and what happened instead? Which device and browser?",
   idea: "What would you like it to do? What would it help you with?",
-  love: "What's working well for you? We'll make sure to keep it.",
-  other: "Tell us anything: questions, confusion, first impressions…",
+  love: "What's working well for you? I'll make sure to keep it.",
+  other: "Tell me anything: questions, confusion, first impressions…",
 };
 
 function QuestionBlock({ q, value, onChange }: { q: Question; value: string | string[] | undefined; onChange: (v: string | string[] | undefined) => void }) {
@@ -75,7 +75,7 @@ export function FeedbackForm({ initialProduct }: { initialProduct: Product | nul
     if (!product) return setError("Choose which app this is about.");
     const shownQs = questionsFor(product, answers);
     const given = Object.fromEntries(shownQs.filter((q) => answers[q.id] !== undefined).map((q) => [q.id, answers[q.id]]));
-    if (message.trim().length < 3 && !Object.keys(given).length) return setError("Answer a question or write a few words so we know what you think.");
+    if (message.trim().length < 3 && !Object.keys(given).length) return setError("Answer a question or write a few words so I know what you think.");
     setBusy(true);
     setError(null);
     try {
@@ -85,11 +85,11 @@ export function FeedbackForm({ initialProduct }: { initialProduct: Product | nul
         body: JSON.stringify({ product, kind: message.trim() ? kind : "other", rating, message, answers: given, name, email, role, website, page: document.referrer || null }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(body.error || "We couldn't send that. Try again in a minute.");
+      if (!res.ok) throw new Error(body.error || "That didn't send. Try again in a minute.");
       setSent(true);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "We couldn't send that. Try again in a minute.");
+      setError(err instanceof Error ? err.message : "That didn't send. Try again in a minute.");
     } finally {
       setBusy(false);
     }
@@ -126,8 +126,8 @@ export function FeedbackForm({ initialProduct }: { initialProduct: Product | nul
           </motion.div>
           <h2>Thank you{name.trim() ? `, ${name.trim().split(" ")[0]}` : ""}.</h2>
           <p>
-            Your note on <strong>{product === "both" ? "both apps" : product === "choticopy" ? "Choti Copy" : "PaperCards"}</strong> is with the team. We read every message,
-            and {email.trim() ? "we'll write back if we have questions." : "the best ones shape what we build next."}
+            Your note on <strong>{product === "both" ? "both apps" : product === "choticopy" ? "Choti Copy" : "PaperCards"}</strong> is with me now. I read every message,
+            and {email.trim() ? "I'll write back if I have questions." : "the best ones shape what I build next."}
           </p>
           <button className="btn ghost" onClick={again}>
             <ArrowCounterClockwise size={16} /> Send another
@@ -222,7 +222,7 @@ export function FeedbackForm({ initialProduct }: { initialProduct: Product | nul
 
           <fieldset className="fb-step">
             <legend>
-              <span className="fb-num">{step++}</span> {answeredCount ? "Anything else to tell us?" : "What would you like to share?"}
+              <span className="fb-num">{step++}</span> {answeredCount ? "Anything else to tell me?" : "What would you like to share?"}
               {answeredCount > 0 && <span className="fb-opt">optional</span>}
             </legend>
             <div className="fb-kinds" role="radiogroup" aria-label="Kind of feedback">
@@ -289,7 +289,7 @@ export function FeedbackForm({ initialProduct }: { initialProduct: Product | nul
                 "Send feedback"
               )}
             </button>
-            <span className="hint">Goes straight to the people building these apps. No account needed.</span>
+            <span className="hint">Goes straight to me, Amith. No account needed.</span>
           </div>
         </motion.form>
       )}
