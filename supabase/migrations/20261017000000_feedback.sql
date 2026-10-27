@@ -7,10 +7,8 @@ create table if not exists public.feedback_admins (
 alter table public.feedback_admins enable row level security;
 -- No policies: the list is only read through is_feedback_admin() below.
 
-insert into public.feedback_admins (email) values
-  ('p.v.saiamith@gmail.com'),
-  ('paruchuri.3833@aiims.edu')
-on conflict do nothing;
+-- Add the admins once, by hand, in the SQL editor (kept out of the repo):
+--   insert into public.feedback_admins (email) values ('you@example.com') on conflict do nothing;
 
 create or replace function public.is_feedback_admin()
 returns boolean
